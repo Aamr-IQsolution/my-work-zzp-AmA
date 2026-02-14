@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  PlusIcon, TrashIcon, CalendarIcon, UserCheckIcon, 
+  PlusIcon, TrashIcon, MapPinIcon, UserCheckIcon, 
   XIcon, SunIcon, MoonIcon, CheckCircle2Icon, Share2Icon, 
   DownloadIcon, FileJsonIcon, CopyIcon, CheckIcon, UserIcon,
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon
@@ -28,6 +28,7 @@ const AlasaylLogo = ({ className = "w-12 h-12" }: { className?: string }) => (
 const App: React.FC = () => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [schedule, setSchedule] = useState<WeeklySchedule>({});
+  const [routeInfo, setRouteInfo] = useState('');
   const [inputName, setInputName] = useState('');
   
   const [currentWeek, setCurrentWeek] = useState<number>(getISOWeek(new Date()));
@@ -41,28 +42,46 @@ const App: React.FC = () => {
   const [weekSelectorOpen, setWeekSelectorOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // Load data for the current week/year
   useEffect(() => {
     const savedDrivers = localStorage.getItem('drivers_pool');
-    const savedSchedule = localStorage.getItem(`schedule_w${currentWeek}_y${currentYear}`);
-    
     if (savedDrivers) setDrivers(JSON.parse(savedDrivers));
     
-    if (savedSchedule) {
-      setSchedule(JSON.parse(savedSchedule));
+    const weeklyDataKey = `schedule_w${currentWeek}_y${currentYear}`;
+    const savedWeeklyData = localStorage.getItem(weeklyDataKey);
+    
+    if (savedWeeklyData) {
+      const data = JSON.parse(savedWeeklyData);
+      // Check for new format { schedule, routeInfo } vs old format (just schedule)
+      if (data.schedule) {
+        setSchedule(data.schedule);
+        setRouteInfo(data.routeInfo || '');
+      } else {
+        setSchedule(data); // Old format
+        setRouteInfo('');
+      }
     } else {
       setSchedule({});
+      setRouteInfo('');
     }
   }, [currentWeek, currentYear]);
 
+  // Save drivers pool (shared)
   useEffect(() => {
     localStorage.setItem('drivers_pool', JSON.stringify(drivers));
   }, [drivers]);
 
+  // Save schedule and route info for the specific week
   useEffect(() => {
-    if (Object.keys(schedule).length > 0) {
-      localStorage.setItem(`schedule_w${currentWeek}_y${currentYear}`, JSON.stringify(schedule));
+    const weeklyData = {
+      schedule,
+      routeInfo,
+    };
+    // Only save if there's actually something in the schedule
+    if (Object.keys(schedule).length > 0 || routeInfo) {
+      localStorage.setItem(`schedule_w${currentWeek}_y${currentYear}`, JSON.stringify(weeklyData));
     }
-  }, [schedule, currentWeek, currentYear]);
+  }, [schedule, routeInfo, currentWeek, currentYear]);
 
   const handleAddDriver = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,7 +113,6 @@ const App: React.FC = () => {
     }
   };
   
-  // When opening the modal, pre-fill with currently assigned drivers
   const openSelectionModal = (dayIndex: number, shift: ShiftType) => {
     if (isDateInPast(weekDates[dayIndex])) return;
     const currentDrivers = schedule[dayIndex]?.[shift]?.drivers.map(d => d.id) || [];
@@ -102,14 +120,12 @@ const App: React.FC = () => {
     setSelectionModal({ dayIndex, shift });
   }
 
-  // Toggle driver selection in the modal
   const toggleDriverSelection = (driverId: string) => {
     setSelectedDrivers(prev => 
       prev.includes(driverId) ? prev.filter(id => id !== driverId) : [...prev, driverId]
     );
   }
 
-  // Save the final selection of drivers
   const handleAssignDrivers = () => {
     if (!selectionModal) return;
     const { dayIndex, shift } = selectionModal;
@@ -136,12 +152,17 @@ const App: React.FC = () => {
 
   const generateScheduleText = () => {
     let text = `📅 *جدول السائقين - الأسبوع ${currentWeek} (${currentYear})*\n`;
-    text += `🏢 *Alasayl-my-work*\n\n`;
+    text += `🏢 *Alasayl-my-work*\n`;
+    if (routeInfo) {
+      text += `📍 *العنوان: ${routeInfo}*\n`;
+    }
+    text += '\n';
+
     DAYS_AR.forEach((day, idx) => {
       const dateStr = formatDate(weekDates[idx]);
-      const morningDrivers = schedule[idx]?.morning?.drivers.map(d => d.name).join(', ') || 'غير محدد';
-      const eveningDrivers = schedule[idx]?.evening?.drivers.map(d => d.name).join(', ') || 'غير محدد';
-      text += `📍 *${day} (${dateStr}):*\n☀️ صباحي: ${morningDrivers}\n🌙 مسائي: ${eveningDrivers}\n\n`;
+      const morningDrivers = schedule[idx]?.morning?.drivers?.map(d => d.name).join(', ') || 'غير محدد';
+      const eveningDrivers = schedule[idx]?.evening?.drivers?.map(d => d.name).join(', ') || 'غير محدد';
+      text += `🗓️ *${day} (${dateStr}):*\n☀️ صباحي: ${morningDrivers}\n🌙 مسائي: ${eveningDrivers}\n\n`;
     });
     text += `تم التوليد بواسطة Alasayl-my-work 🐎`;
     return text;
@@ -162,6 +183,7 @@ const App: React.FC = () => {
     const data = {
       week: currentWeek,
       year: currentYear,
+      routeInfo: routeInfo,
       generatedAt: new Date().toISOString(),
       schedule: schedule,
       drivers: drivers
@@ -170,7 +192,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `alasayl_schedule_w${currentWeek}.json`;
+    a.download = `alasayl_schedule_w${currentWeek}_y${currentYear}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -179,7 +201,10 @@ const App: React.FC = () => {
     if (!drivers || drivers.length === 0) return null;
     return (
       <div className="flex flex-col items-center gap-1">
-        {drivers.length > 1 && <UsersIcon className="w-4 h-4 text-indigo-400" />}
+        {drivers.length > 1 ? 
+            <UsersIcon className="w-4 h-4 text-inherit" /> : 
+            <UserCheckIcon className="w-4 h-4 text-inherit" />
+        }
         {drivers.map(driver => (
           <span key={driver.id} className="font-bold text-sm text-center line-clamp-1">{driver.name}</span>
         ))}
@@ -283,6 +308,21 @@ const App: React.FC = () => {
         </div>
 
         <div className="lg:col-span-8 space-y-4 order-1 lg:order-2">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <label htmlFor="route-info" className="font-bold text-slate-800 flex items-center gap-2 mb-2">
+                    <MapPinIcon className="w-4 h-4 text-indigo-600" />
+                    عنوان / مسار الأسبوع
+                </label>
+                <input
+                    id="route-info"
+                    type="text"
+                    value={routeInfo}
+                    onChange={(e) => setRouteInfo(e.target.value)}
+                    placeholder="مثال: أمستردام - هارلم"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                />
+            </div>
+
           <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
             <table className="w-full border-collapse text-right">
               <thead>
