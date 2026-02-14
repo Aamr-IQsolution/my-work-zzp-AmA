@@ -1,0 +1,5 @@
+{
+  "name": "Alasayl-my-work",
+  "description": "A professional driver scheduling application using ISO-8601 week numbering (Dutch system), featuring driver management, persistence, and a clean Arabic/Dutch interface.",
+  "requestFramePermissions": []
+}
