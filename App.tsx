@@ -4,17 +4,14 @@ import {
   PlusIcon, TrashIcon, CalendarIcon, UserCheckIcon, 
   XIcon, SunIcon, MoonIcon, CheckCircle2Icon, Share2Icon, 
   DownloadIcon, FileJsonIcon, CopyIcon, CheckIcon, UserIcon,
-  LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon
+  LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon
 } from 'lucide-react';
-import { Driver, WeeklySchedule, ShiftType, ShiftAssignment } from './types';
+import { Driver, WeeklySchedule, ShiftType, DriverInfo } from './types';
 import { getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast } from './utils';
 
 const DAYS_AR = ['الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
 const DAYS_NL = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'];
 
-/**
- * AlasaylLogo: Displays the official circular brand logo provided by the user.
- */
 const AlasaylLogo = ({ className = "w-12 h-12" }: { className?: string }) => (
   <div className={`relative flex-shrink-0 rounded-full bg-white shadow-2xl overflow-hidden border border-slate-200 flex items-center justify-center ${className}`}>
     <img 
@@ -33,26 +30,23 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<WeeklySchedule>({});
   const [inputName, setInputName] = useState('');
   
-  // Dynamic Week and Year
   const [currentWeek, setCurrentWeek] = useState<number>(getISOWeek(new Date()));
   const [currentYear, setCurrentYear] = useState<number>(getCurrentYear());
   
   const weekDates = useMemo(() => getDatesForISOWeek(currentWeek, currentYear), [currentWeek, currentYear]);
 
-  // Modals State
   const [selectionModal, setSelectionModal] = useState<{ dayIndex: number; shift: ShiftType } | null>(null);
+  const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [weekSelectorOpen, setWeekSelectorOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Load data - Now specifically reacts to week/year changes
   useEffect(() => {
     const savedDrivers = localStorage.getItem('drivers_pool');
     const savedSchedule = localStorage.getItem(`schedule_w${currentWeek}_y${currentYear}`);
     
     if (savedDrivers) setDrivers(JSON.parse(savedDrivers));
     
-    // Clear current schedule state before loading new one to avoid flash of old data
     if (savedSchedule) {
       setSchedule(JSON.parse(savedSchedule));
     } else {
@@ -60,12 +54,10 @@ const App: React.FC = () => {
     }
   }, [currentWeek, currentYear]);
 
-  // Persistent driver pool (shared across all weeks)
   useEffect(() => {
     localStorage.setItem('drivers_pool', JSON.stringify(drivers));
   }, [drivers]);
 
-  // Save specific week schedule
   useEffect(() => {
     if (Object.keys(schedule).length > 0) {
       localStorage.setItem(`schedule_w${currentWeek}_y${currentYear}`, JSON.stringify(schedule));
@@ -90,30 +82,51 @@ const App: React.FC = () => {
       const newSchedule = { ...schedule };
       Object.keys(newSchedule).forEach(day => {
         const dIdx = parseInt(day);
-        if (newSchedule[dIdx].morning?.driverId === id) newSchedule[dIdx].morning = null;
-        if (newSchedule[dIdx].evening?.driverId === id) newSchedule[dIdx].evening = null;
+        const daySchedule = newSchedule[dIdx];
+        if (daySchedule.morning?.drivers) {
+          daySchedule.morning.drivers = daySchedule.morning.drivers.filter(d => d.id !== id);
+        }
+        if (daySchedule.evening?.drivers) {
+          daySchedule.evening.drivers = daySchedule.evening.drivers.filter(d => d.id !== id);
+        }
       });
       setSchedule(newSchedule);
     }
   };
+  
+  // When opening the modal, pre-fill with currently assigned drivers
+  const openSelectionModal = (dayIndex: number, shift: ShiftType) => {
+    if (isDateInPast(weekDates[dayIndex])) return;
+    const currentDrivers = schedule[dayIndex]?.[shift]?.drivers.map(d => d.id) || [];
+    setSelectedDrivers(currentDrivers);
+    setSelectionModal({ dayIndex, shift });
+  }
 
-  const assignDriver = (driver: Driver | null) => {
+  // Toggle driver selection in the modal
+  const toggleDriverSelection = (driverId: string) => {
+    setSelectedDrivers(prev => 
+      prev.includes(driverId) ? prev.filter(id => id !== driverId) : [...prev, driverId]
+    );
+  }
+
+  // Save the final selection of drivers
+  const handleAssignDrivers = () => {
     if (!selectionModal) return;
     const { dayIndex, shift } = selectionModal;
-    
-    if (isDateInPast(weekDates[dayIndex])) {
-        setSelectionModal(null);
-        return;
-    }
+
+    const newDriverInfos: DriverInfo[] = drivers
+      .filter(d => selectedDrivers.includes(d.id))
+      .map(d => ({ id: d.id, name: d.name }));
 
     setSchedule(prev => ({
       ...prev,
       [dayIndex]: {
         ...prev[dayIndex],
-        [shift]: driver ? { driverId: driver.id, driverName: driver.name } : null
+        [shift]: newDriverInfos.length > 0 ? { drivers: newDriverInfos } : null
       }
     }));
     setSelectionModal(null);
+    setSelectedDrivers([]);
   };
 
   const handleWeekSelect = (week: number) => {
@@ -126,9 +139,9 @@ const App: React.FC = () => {
     text += `🏢 *Alasayl-my-work*\n\n`;
     DAYS_AR.forEach((day, idx) => {
       const dateStr = formatDate(weekDates[idx]);
-      const morning = schedule[idx]?.morning?.driverName || 'غير محدد';
-      const evening = schedule[idx]?.evening?.driverName || 'غير محدد';
-      text += `📍 *${day} (${dateStr}):*\n☀️ صباحي: ${morning}\n🌙 مسائي: ${evening}\n\n`;
+      const morningDrivers = schedule[idx]?.morning?.drivers.map(d => d.name).join(', ') || 'غير محدد';
+      const eveningDrivers = schedule[idx]?.evening?.drivers.map(d => d.name).join(', ') || 'غير محدد';
+      text += `📍 *${day} (${dateStr}):*\n☀️ صباحي: ${morningDrivers}\n🌙 مسائي: ${eveningDrivers}\n\n`;
     });
     text += `تم التوليد بواسطة Alasayl-my-work 🐎`;
     return text;
@@ -161,10 +174,22 @@ const App: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
   };
+  
+  const renderDriverNames = (drivers: DriverInfo[] | undefined) => {
+    if (!drivers || drivers.length === 0) return null;
+    return (
+      <div className="flex flex-col items-center gap-1">
+        {drivers.length > 1 && <UsersIcon className="w-4 h-4 text-indigo-400" />}
+        {drivers.map(driver => (
+          <span key={driver.id} className="font-bold text-sm text-center line-clamp-1">{driver.name}</span>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
-      <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
+       <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 py-4 md:py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <AlasaylLogo className="w-16 h-16 border-2 border-indigo-500/50 shadow-2xl" />
@@ -183,7 +208,6 @@ const App: React.FC = () => {
               <span className="font-bold text-sm hidden sm:inline">تصدير / مشاركة</span>
             </button>
 
-            {/* Clickable Week Selector Badge */}
             <button 
               onClick={() => setWeekSelectorOpen(true)}
               className="flex items-center gap-3 bg-indigo-800/50 hover:bg-indigo-800 px-4 py-2 rounded-xl border border-indigo-400/30 transition-all group active:scale-95"
@@ -281,6 +305,9 @@ const App: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {DAYS_AR.map((day, idx) => {
                   const isPast = isDateInPast(weekDates[idx]);
+                  const morningDrivers = schedule[idx]?.morning?.drivers;
+                  const eveningDrivers = schedule[idx]?.evening?.drivers;
+
                   return (
                     <tr key={idx} className={`transition-colors ${isPast ? 'bg-slate-100/50' : 'hover:bg-indigo-50/30'}`}>
                       <td className="py-6 px-4 bg-slate-50/80 border-l border-slate-100 min-w-[120px] relative">
@@ -297,44 +324,36 @@ const App: React.FC = () => {
                       <td className="p-2 border-l border-slate-100">
                         <button
                           disabled={isPast}
-                          onClick={() => !isPast && setSelectionModal({ dayIndex: idx, shift: 'morning' })}
+                          onClick={() => openSelectionModal(idx, 'morning')}
                           className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1
                             ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''}
-                            ${!isPast && schedule[idx]?.morning 
+                            ${!isPast && morningDrivers && morningDrivers.length > 0 
                               ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' 
                               : !isPast ? 'border-slate-200 text-slate-300 hover:border-indigo-300 hover:text-indigo-400' : ''}
-                            ${isPast && schedule[idx]?.morning ? 'bg-slate-200 border-slate-300 text-slate-500 shadow-none' : ''}`}
+                            ${isPast && morningDrivers && morningDrivers.length > 0 ? 'bg-slate-200 border-slate-300 text-slate-500 shadow-none' : ''}`}
                         >
-                          {schedule[idx]?.morning ? (
-                            <>
-                              <UserCheckIcon className="w-4 h-4" />
-                              <span className="font-bold text-sm text-center line-clamp-1">{schedule[idx].morning?.driverName}</span>
-                            </>
-                          ) : (
-                            <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>
-                          )}
+                          {morningDrivers && morningDrivers.length > 0 ? 
+                            renderDriverNames(morningDrivers) 
+                            : <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>
+                          }
                         </button>
                       </td>
 
                       <td className="p-2">
                         <button
                           disabled={isPast}
-                          onClick={() => !isPast && setSelectionModal({ dayIndex: idx, shift: 'evening' })}
+                          onClick={() => openSelectionModal(idx, 'evening')}
                           className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1
                             ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''}
-                            ${!isPast && schedule[idx]?.evening 
+                            ${!isPast && eveningDrivers && eveningDrivers.length > 0
                               ? 'bg-slate-800 border-slate-700 text-slate-100 shadow-lg' 
                               : !isPast ? 'border-slate-200 text-slate-300 hover:border-slate-400 hover:text-slate-500' : ''}
-                            ${isPast && schedule[idx]?.evening ? 'bg-slate-700 border-slate-600 text-slate-400 shadow-none' : ''}`}
+                            ${isPast && eveningDrivers && eveningDrivers.length > 0 ? 'bg-slate-700 border-slate-600 text-slate-400 shadow-none' : ''}`}
                         >
-                          {schedule[idx]?.evening ? (
-                            <>
-                              <UserCheckIcon className="w-4 h-4 text-indigo-400" />
-                              <span className="font-bold text-sm text-center line-clamp-1">{schedule[idx].evening?.driverName}</span>
-                            </>
-                          ) : (
-                            <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>
-                          )}
+                          {eveningDrivers && eveningDrivers.length > 0 ? 
+                            renderDriverNames(eveningDrivers) 
+                            : <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>
+                          }
                         </button>
                       </td>
                     </tr>
@@ -346,124 +365,89 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Week Selector Modal */}
       {weekSelectorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-indigo-700 p-6 text-white text-center relative">
-              <h3 className="text-xl font-bold">اختر الأسبوع</h3>
-              <div className="flex items-center justify-center gap-6 mt-4">
-                <button 
-                  onClick={() => setCurrentYear(y => y - 1)}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <ChevronRightIcon className="w-5 h-5" />
-                </button>
-                <span className="font-bold text-lg">{currentYear}</span>
-                <button 
-                  onClick={() => setCurrentYear(y => y + 1)}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <ChevronLeftIcon className="w-5 h-5" />
-                </button>
-              </div>
-              <button 
-                onClick={() => setWeekSelectorOpen(false)} 
-                className="absolute top-4 left-4 p-2 hover:bg-white/10 rounded-full transition-colors"
-              >
-                <XIcon className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid grid-cols-5 sm:grid-cols-7 gap-2 max-h-[40vh] overflow-y-auto pr-1">
-                {Array.from({ length: 53 }, (_, i) => i + 1).map(week => (
-                  <button
-                    key={week}
-                    onClick={() => handleWeekSelect(week)}
-                    className={`aspect-square flex items-center justify-center rounded-xl font-bold text-sm transition-all border-2
-                      ${currentWeek === week 
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' 
-                        : 'border-slate-100 hover:border-indigo-200 hover:bg-indigo-50 text-slate-600'}`}
-                  >
-                    {week}
-                  </button>
-                ))}
-              </div>
-              
-              <div className="mt-6 flex gap-3">
-                <button
-                  onClick={() => {
-                    setCurrentYear(getCurrentYear());
-                    setCurrentWeek(getISOWeek(new Date()));
-                    setWeekSelectorOpen(false);
-                  }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-xl transition-all text-sm"
-                >
-                  العودة للأسبوع الحالي
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Driver Selection Modal */}
-      {selectionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-indigo-700 p-6 text-white flex justify-between items-center relative">
-              <div className="relative z-10">
-                <h3 className="text-xl font-bold">اختيار السائق</h3>
-                <p className="text-indigo-100 text-xs mt-1">
-                  {DAYS_AR[selectionModal.dayIndex]} ({formatDate(weekDates[selectionModal.dayIndex])}) - {selectionModal.shift === 'morning' ? 'مناوبة صباحية' : 'مناوبة مسائية'}
-                </p>
-              </div>
-              <button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10">
-                <XIcon className="w-6 h-6" />
-              </button>
-              <div className="absolute left-0 -bottom-6 opacity-10">
-                  <AlasaylLogo className="w-32 h-32 rotate-12" />
-              </div>
-            </div>
-            
-            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
-              <button
-                onClick={() => assignDriver(null)}
-                className="w-full p-4 rounded-2xl border-2 border-slate-100 text-slate-400 hover:border-red-200 hover:text-red-500 hover:bg-red-50 transition-all font-bold flex items-center justify-center gap-2"
-              >
-                <TrashIcon className="w-4 h-4" />
-                إلغاء التعيين
-              </button>
-              
-              <div className="pt-2 pb-1 text-[10px] font-bold text-slate-400 px-2 uppercase tracking-widest">اختر من القائمة</div>
-              
-              {drivers.length > 0 ? (
-                drivers.map(driver => (
-                  <button
-                    key={driver.id}
-                    onClick={() => assignDriver(driver)}
-                    className="w-full p-4 rounded-2xl border-2 border-slate-50 bg-slate-50 hover:bg-white hover:border-indigo-500 hover:shadow-md transition-all flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
-                            {driver.name.charAt(0)}
-                        </div>
-                        <span className="font-bold text-slate-700">{driver.name}</span>
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="bg-indigo-700 p-6 text-white text-center relative">
+                    <h3 className="text-xl font-bold">اختر الأسبوع</h3>
+                    <div className="flex items-center justify-center gap-6 mt-4">
+                        <button onClick={() => setCurrentYear(y => y - 1)} className="p-1 hover:bg-white/10 rounded-lg transition-colors"><ChevronRightIcon className="w-5 h-5" /></button>
+                        <span className="font-bold text-lg">{currentYear}</span>
+                        <button onClick={() => setCurrentYear(y => y + 1)} className="p-1 hover:bg-white/10 rounded-lg transition-colors"><ChevronLeftIcon className="w-5 h-5" /></button>
                     </div>
-                    <CheckCircle2Icon className="w-5 h-5 text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                ))
-              ) : (
-                <div className="p-8 text-center text-slate-400">
-                  <p>لا يوجد سائقين مضافين حالياً</p>
-                  <p className="text-xs mt-1">يرجى إضافة سائق أولاً من القائمة الجانبية</p>
+                    <button onClick={() => setWeekSelectorOpen(false)} className="absolute top-4 left-4 p-2 hover:bg-white/10 rounded-full transition-colors"><XIcon className="w-5 h-5" /></button>
                 </div>
-              )}
+                <div className="p-6">
+                    <div className="grid grid-cols-5 sm:grid-cols-7 gap-2 max-h-[40vh] overflow-y-auto pr-1">
+                        {Array.from({ length: 53 }, (_, i) => i + 1).map(week => (
+                            <button key={week} onClick={() => handleWeekSelect(week)} className={`aspect-square flex items-center justify-center rounded-xl font-bold text-sm transition-all border-2 ${currentWeek === week ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'border-slate-100 hover:border-indigo-200 hover:bg-indigo-50 text-slate-600'}`}>
+                                {week}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="mt-6 flex gap-3">
+                        <button onClick={() => { setCurrentYear(getCurrentYear()); setCurrentWeek(getISOWeek(new Date())); setWeekSelectorOpen(false); }} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-xl transition-all text-sm">العودة للأسبوع الحالي</button>
+                    </div>
+                </div>
             </div>
-          </div>
         </div>
-      )}
+    )}
+
+    {selectionModal && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-indigo-700 p-6 text-white flex justify-between items-start relative">
+                <div className="relative z-10">
+                    <h3 className="text-xl font-bold">اختيار السائقين</h3>
+                    <p className="text-indigo-100 text-xs mt-1">{DAYS_AR[selectionModal.dayIndex]} - {selectionModal.shift === 'morning' ? 'مناوبة صباحية' : 'مناوبة مسائية'}</p>
+                </div>
+                <button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10"><XIcon className="w-6 h-6" /></button>
+                <div className="absolute left-0 -bottom-6 opacity-10"><AlasaylLogo className="w-32 h-32 rotate-12" /></div>
+            </div>
+            
+            <div className="p-2 bg-slate-50 max-h-[50vh] overflow-y-auto">
+                <div className="p-2 space-y-2">
+                    {drivers.length > 0 ? (
+                        drivers.map(driver => {
+                            const isSelected = selectedDrivers.includes(driver.id);
+                            return (
+                                <button
+                                    key={driver.id}
+                                    onClick={() => toggleDriverSelection(driver.id)}
+                                    className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between group ${isSelected ? 'bg-white border-indigo-500 shadow-md' : 'border-transparent bg-white hover:border-indigo-200'}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                            {driver.name.charAt(0)}
+                                        </div>
+                                        <span className={`font-bold transition-colors ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{driver.name}</span>
+                                    </div>
+                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-200'}`}>
+                                        {isSelected && <CheckIcon className="w-4 h-4 text-white" />}
+                                    </div>
+                                </button>
+                            );
+                        })
+                    ) : (
+                        <div className="p-8 text-center text-slate-400">
+                            <p>يرجى إضافة سائق أولاً</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2">
+                 <button onClick={handleAssignDrivers} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2">
+                    <UserCheckIcon className="w-5 h-5" />
+                    حفظ التعيينات ({selectedDrivers.length})
+                </button>
+                <button onClick={() => { setSelectedDrivers([]); }} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-5 rounded-xl transition-all text-sm">
+                    إلغاء تحديد الكل
+                </button>
+            </div>
+        </div>
+    </div>
+)}
 
       {exportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">

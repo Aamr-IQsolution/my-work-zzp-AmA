@@ -1,4 +1,3 @@
-
 export interface Driver {
   id: string;
   name: string;
@@ -7,12 +6,22 @@ export interface Driver {
 
 export type ShiftType = 'morning' | 'evening';
 
-export interface ShiftAssignment {
-  driverId: string;
-  driverName: string;
+// Represents a single driver assigned to a shift
+export interface DriverInfo {
+  id: string;
+  name: string;
 }
 
-export type WeeklySchedule = Record<number, Record<ShiftType, ShiftAssignment | null>>;
+// A shift can now have multiple drivers
+export interface ShiftAssignment {
+  drivers: DriverInfo[];
+}
+
+// The schedule structure remains similar, but the shift assignment object is updated
+export type WeeklySchedule = Record<number, {
+  morning?: ShiftAssignment | null;
+  evening?: ShiftAssignment | null;
+}>;
 
 export interface AppState {
   drivers: Driver[];
