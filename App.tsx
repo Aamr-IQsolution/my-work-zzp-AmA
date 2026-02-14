@@ -7,6 +7,7 @@ import {
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon,
   FileTextIcon, Edit2Icon, CalendarIcon, ViewIcon, EyeIcon, CalendarRangeIcon
 } from 'lucide-react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
 import { 
   getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast,
@@ -456,6 +457,7 @@ const App: React.FC = () => {
           <span>&copy; {currentYear} Alasayl-my-work</span>
         </div>
       </footer>
+      <SpeedInsights />
     </div>
   );
 };
