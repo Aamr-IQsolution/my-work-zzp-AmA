@@ -7,7 +7,6 @@ import {
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon,
   FileTextIcon, Edit2Icon, CalendarIcon, ViewIcon, EyeIcon, CalendarRangeIcon
 } from 'lucide-react';
-import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
 import { 
   getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast,
@@ -411,7 +410,7 @@ const App: React.FC = () => {
             {scheduleTables.map(table => (
               <div key={table.id} className="relative group">
                 <button onClick={() => setActiveTableId(table.id)} className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 rounded-t-lg transition-all font-bold text-sm ${activeTableId === table.id ? 'bg-white text-indigo-700 shadow-sm' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}><FileTextIcon className="w-4 h-4" /><span>{table.title}</span></button>
-                <button onClick={() => deleteScheduleTable(table.id)} className="absolute top-0 -right-1 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all"><XIcon className="w-3 h-3"/></button>
+                <button onClick={() => deleteScheduleTable(table.id)} className="absolute top-0 -right-1 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all"><XIcon className="w-3 h-3"/ ></button>
               </div>
             ))}
             <button onClick={addScheduleTable} className="flex items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all font-bold text-sm"><PlusIcon className="w-4 h-4" /> إضافة جدول</button>
@@ -457,7 +456,6 @@ const App: React.FC = () => {
           <span>&copy; {currentYear} Alasayl-my-work</span>
         </div>
       </footer>
-      <SpeedInsights />
     </div>
   );
 };
