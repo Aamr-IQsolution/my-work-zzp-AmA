@@ -50,41 +50,54 @@ const App: React.FC = () => {
 
   // Load data for the current week/year
   useEffect(() => {
-    // 1. Load shared driver pool
-    const savedDrivers = localStorage.getItem('drivers_pool');
-    if (savedDrivers) setDrivers(JSON.parse(savedDrivers));
-    
-    // 2. Load data for the specific week
-    const weeklyDataKey = `schedule_data_w${currentWeek}_y${currentYear}`;
-    const savedWeeklyData = localStorage.getItem(weeklyDataKey);
-    
-    if (savedWeeklyData) {
-      let data = JSON.parse(savedWeeklyData);
+    // 1. Load shared driver pool with error handling
+    try {
+      const savedDrivers = localStorage.getItem('drivers_pool');
+      if (savedDrivers) setDrivers(JSON.parse(savedDrivers));
+    } catch (error) {
+      console.error("Failed to parse drivers pool:", error);
+      localStorage.removeItem('drivers_pool'); // Clear corrupted data
+    }
 
-      // --- MIGRATION LOGIC ---
-      // Check if data is in the OLD format (an object with a schedule property) vs the NEW format (an array)
-      if (data && !Array.isArray(data)) {
-        const oldSchedule = data.schedule || data; // Handle both {schedule, route} and just schedule objects
-        const oldRouteInfo = data.routeInfo || '';
-        data = [{
-          id: crypto.randomUUID(),
-          title: 'الجدول الرئيسي',
-          routeInfo: oldRouteInfo,
-          schedule: oldSchedule
-        }];
-      }
-      // --- END MIGRATION ---
+    // 2. Load schedule data for the specific week with migration and error handling
+    const newKey = `schedule_data_w${currentWeek}_y${currentYear}`;
+    const oldKey = `schedule_w${currentWeek}_y${currentYear}`;
+    let dataToProcess: ScheduleTable[] | null = null;
 
-      setScheduleTables(data);
-      // If there are tables, set the first one as active.
-      if (data.length > 0) {
-        setActiveTableId(data[0].id);
+    try {
+      const newSavedData = localStorage.getItem(newKey);
+      if (newSavedData) {
+        // New format data found ([ScheduleTable]), use it directly.
+        dataToProcess = JSON.parse(newSavedData);
       } else {
-        setActiveTableId(null);
+        const oldSavedData = localStorage.getItem(oldKey);
+        if (oldSavedData) {
+          // Old format data found ({schedule, routeInfo} or just schedule), migrate it.
+          const parsedOldData = JSON.parse(oldSavedData);
+          const schedule = parsedOldData.schedule || parsedOldData;
+          const routeInfo = parsedOldData.routeInfo || '';
+          
+          dataToProcess = [{
+            id: crypto.randomUUID(),
+            title: 'الجدول الرئيسي',
+            routeInfo: routeInfo,
+            schedule: schedule
+          }];
+        }
       }
+    } catch (error) {
+      console.error("Failed to parse or migrate schedule data:", error);
+      dataToProcess = null;
+      // Clear potentially corrupted keys
+      localStorage.removeItem(newKey);
+      localStorage.removeItem(oldKey);
+    }
 
+    if (dataToProcess && Array.isArray(dataToProcess)) {
+      setScheduleTables(dataToProcess);
+      setActiveTableId(dataToProcess.length > 0 ? dataToProcess[0].id : null);
     } else {
-      // No data for this week, reset everything
+      // No data found or parsing failed, start fresh for the week.
       setScheduleTables([]);
       setActiveTableId(null);
     }
@@ -97,11 +110,12 @@ const App: React.FC = () => {
 
   // Save all schedule tables for the specific week
   useEffect(() => {
+    const key = `schedule_data_w${currentWeek}_y${currentYear}`;
     if (scheduleTables.length > 0) {
-      localStorage.setItem(`schedule_data_w${currentWeek}_y${currentYear}`, JSON.stringify(scheduleTables));
+      localStorage.setItem(key, JSON.stringify(scheduleTables));
     } else {
       // If the last table is deleted, remove the key from local storage
-      localStorage.removeItem(`schedule_data_w${currentWeek}_y${currentYear}`);
+      localStorage.removeItem(key);
     }
   }, [scheduleTables, currentWeek, currentYear]);
 
@@ -251,9 +265,7 @@ const App: React.FC = () => {
       week: currentWeek,
       year: currentYear,
       generatedAt: new Date().toISOString(),
-      // Save all tables for the week as a backup
       tables: scheduleTables,
-      // Also include the shared driver pool
       drivers: drivers 
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
