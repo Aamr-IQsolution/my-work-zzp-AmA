@@ -15,7 +15,6 @@ export const getISOWeek = (date: Date): number => {
  * Returns an array of 7 Date objects representing the days of a specific ISO week.
  */
 export const getDatesForISOWeek = (week: number, year: number): Date[] => {
-  // ISO week 1 is the week with the first Thursday of the year
   const simple = new Date(year, 0, 1 + (week - 1) * 7);
   const dow = simple.getDay();
   const ISOweekStart = simple;
@@ -54,4 +53,43 @@ export const isDateInPast = (date: Date): boolean => {
   const compareDate = new Date(date);
   compareDate.setHours(0, 0, 0, 0);
   return compareDate < today;
+};
+
+// --- NEW ADDITIONS FOR MONTHLY VIEW ---
+
+export const ARABIC_MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+];
+
+export const DUTCH_MONTHS = [
+  'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
+  'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'
+];
+
+/**
+ * Returns an array of Date objects for each day in a given month and year.
+ */
+export const getDaysInMonth = (month: number, year: number): Date[] => {
+  const date = new Date(year, month, 1);
+  const days: Date[] = [];
+  while (date.getMonth() === month) {
+    days.push(new Date(date));
+    date.setDate(date.getDate() + 1);
+  }
+  return days;
+};
+
+/**
+ * Gets the Arabic name of a month (0-indexed).
+ */
+export const getMonthNameAR = (month: number): string => {
+    return ARABIC_MONTHS[month];
+};
+
+/**
+ * Gets the Dutch name of a month (0-indexed).
+ */
+export const getMonthNameNL = (month: number): string => {
+    return DUTCH_MONTHS[month];
 };
