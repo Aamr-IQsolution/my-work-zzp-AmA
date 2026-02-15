@@ -13,8 +13,9 @@ import {
   getDaysInMonth, getMonthNameAR, getMonthNameNL
 } from './utils';
 
-const DAYS_AR = ['الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
-const DAYS_NL = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'];
+const DAY_NAME_MAP_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const DAY_NAME_MAP_NL = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag'];
+
 
 const AlasaylLogo = ({ className = "w-12 h-12" }: { className?: string }) => (
   <div className={`relative flex-shrink-0 rounded-full bg-white shadow-2xl overflow-hidden border border-slate-200 flex items-center justify-center ${className}`}>
@@ -29,9 +30,6 @@ const AlasaylLogo = ({ className = "w-12 h-12" }: { className?: string }) => (
   </div>
 );
 
-// A mapping to get the day name in Arabic from a Date object (0=Sunday, 1=Monday...)
-const DAY_NAME_MAP_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
 const App: React.FC = () => {
   // Core Data State
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -41,6 +39,9 @@ const App: React.FC = () => {
   // View & Date State
   const [viewMode, setViewMode] = useState<'weekly' | 'monthly'>('weekly');
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // Language State
+  const [language, setLanguage] = useState<'ar' | 'nl'>('ar');
 
   // Derived date values
   const currentWeek = getISOWeek(currentDate);
@@ -57,48 +58,50 @@ const App: React.FC = () => {
   const [editingDriverName, setEditingDriverName] = useState('');
   const [selectionModal, setSelectionModal] = useState<{ date: Date; shift: ShiftType } | null>(null);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [timeSelectorOpen, setTimeSelectorOpen] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
   
   const activeTable = useMemo(() => scheduleTables.find(t => t.id === activeTableId), [scheduleTables, activeTableId]);
+  
+  const getDayKey = (date: Date) => date.toISOString().split('T')[0]; // "YYYY-MM-DD"
 
-    const getDayKey = (date: Date) => date.toISOString().split('T')[0]; // "YYYY-MM-DD"
-
-    const handleShareToWhatsApp = useCallback(() => {
+  const handleShareToWhatsApp = useCallback(() => {
     if (!activeTable) {
-        alert('يرجى تحديد جدول للمشاركة.');
+        alert(language === 'ar' ? 'يرجى تحديد جدول للمشاركة.' : 'Selecteer een tabel om te delen.');
         return;
     }
 
     const dates = viewMode === 'weekly' ? weekDates : monthDates;
-    let message = `*جدول: ${activeTable.title}*\n`;
+    const isArabic = language === 'ar';
+
+    let message = `*${isArabic ? 'جدول' : 'Schema'}: ${activeTable.title}*\n`;
     if (activeTable.routeInfo) {
-        message += `*الخط: ${activeTable.routeInfo}*\n`;
+        message += `*${isArabic ? 'الخط' : 'Route'}: ${activeTable.routeInfo}*\n`;
     }
     message += '\n';
 
+    const dayNameMap = isArabic ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL;
+
     dates.forEach(date => {
         const dayKey = getDayKey(date);
-        const dayName = DAY_NAME_MAP_AR[date.getDay()];
+        const dayName = dayNameMap[date.getDay()];
         const formattedDate = formatDate(date);
-        const morningDrivers = activeTable.schedule[dayKey]?.morning?.drivers?.map(d => d.name).join('، ') || 'لا يوجد';
-        const eveningDrivers = activeTable.schedule[dayKey]?.evening?.drivers?.map(d => d.name).join('، ') || 'لا يوجد';
+
+        const morningDrivers = activeTable.schedule[dayKey]?.morning?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
+        const eveningDrivers = activeTable.schedule[dayKey]?.evening?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
 
         message += `*${dayName} - ${formattedDate}*\n`;
-        message += `☀️ *صباحي:* ${morningDrivers}\n`;
-        message += `🌙 *مسائي:* ${eveningDrivers}\n`;
+        message += `☀️ *${isArabic ? 'صباحي' : 'Ochtend'}:* ${morningDrivers}\n`;
+        message += `🌙 *${isArabic ? 'مسائي' : 'Avond'}:* ${eveningDrivers}\n`;
         message += `-------------------\n`;
     });
     
-    message += `\nتم إنشاؤه بواسطة Alasayl-my-work`;
+    message += `\n${isArabic ? 'تم إنشاؤه بواسطة' : 'Gegenereerd door'} Alasayl-my-work`;
 
     const encodedMessage = encodeURIComponent(message);
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodedMessage}`;
     window.open(whatsappUrl, '_blank');
 
-  }, [activeTable, viewMode, weekDates, monthDates, getDayKey]);
-
+  }, [activeTable, viewMode, weekDates, monthDates, getDayKey, language]);
+  
   // --- DATA LOADING & SAVING ---
 
   const loadDataForDate = useCallback((date: Date) => {
@@ -143,7 +146,7 @@ const App: React.FC = () => {
   const addScheduleTable = () => {
     const newTable: ScheduleTable = {
       id: crypto.randomUUID(),
-      title: `جدول ${scheduleTables.length + 1}`,
+      title: `${language === 'ar' ? 'جدول' : 'Tabel'} ${scheduleTables.length + 1}`,
       routeInfo: '',
       schedule: {}
     };
@@ -152,7 +155,8 @@ const App: React.FC = () => {
   };
 
   const deleteScheduleTable = (idToDelete: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الجدول؟')) return;
+    const confirmMessage = language === 'ar' ? 'هل أنت متأكد من حذف هذا الجدول؟' : 'Weet je zeker dat je deze tabel wilt verwijderen?';
+    if (!confirm(confirmMessage)) return;
     setScheduleTables(prev => {
       const newTables = prev.filter(t => t.id !== idToDelete);
       if (activeTableId === idToDelete) {
@@ -180,10 +184,11 @@ const App: React.FC = () => {
 
   const handleSaveDriverName = (driverId: string) => {
     const newName = editingDriverName.trim();
-    if (!newName) return alert("اسم السائق لا يمكن أن يكون فارغاً.");
+    if (!newName) return alert(language === 'ar' ? "اسم السائق لا يمكن أن يكون فارغاً." : "Chauffeursnaam mag niet leeg zijn.");
 
     setDrivers(prev => prev.map(d => (d.id === driverId ? { ...d, name: newName } : d)));
 
+    // Update name across all saved schedules
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith('schedule_data_d_')) {
@@ -221,7 +226,8 @@ const App: React.FC = () => {
   };
 
   const handleDeleteDriver = (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذا السائق؟ سيتم إزالته من جميع الجداول والمناوبات.')) {
+    const confirmMessage = language === 'ar' ? 'هل أنت متأكد من حذف هذا السائق؟ سيتم إزالته من جميع الجداول والمناوبات.' : 'Weet je zeker dat je deze chauffeur wilt verwijderen? Hij wordt uit alle tabellen en diensten verwijderd.';
+    if (confirm(confirmMessage)) {
         setDrivers(prev => prev.filter(d => d.id !== id));
          for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -302,7 +308,7 @@ const App: React.FC = () => {
 
   const changeMonth = (offset: number) => {
       const newDate = new Date(currentDate);
-      newDate.setMonth(newDate.getMonth() + offset, 1); // Go to the 1st of the month to avoid day-of-month issues
+      newDate.setMonth(newDate.getMonth() + offset, 1);
       setCurrentDate(newDate);
   };
 
@@ -324,23 +330,24 @@ const App: React.FC = () => {
   const renderScheduleCell = (date: Date) => {
       const dayKey = getDayKey(date);
       const isPast = isDateInPast(date);
+      const dayName = (language === 'ar' ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL)[date.getDay()];
       const morningDrivers = activeTable?.schedule[dayKey]?.morning?.drivers;
       const eveningDrivers = activeTable?.schedule[dayKey]?.evening?.drivers;
       
       return (
-        <tr className={`transition-colors ${isPast ? 'bg-slate-100/50' : 'hover:bg-indigo-50/30'}`}>
+        <tr key={dayKey} className={`transition-colors ${isPast ? 'bg-slate-100/50' : 'hover:bg-indigo-50/30'}`}>
           <td className="py-6 px-4 bg-slate-50/80 border-l border-slate-100 min-w-[120px] relative">
-            <div className="flex items-center gap-1"><p className={`font-bold ${isPast ? 'text-slate-400' : 'text-slate-800'}`}>{DAY_NAME_MAP_AR[date.getDay()]}</p>{isPast && <LockIcon className="w-3 h-3 text-slate-300" />}</div>
+            <div className="flex items-center gap-1"><p className={`font-bold ${isPast ? 'text-slate-400' : 'text-slate-800'}`}>{dayName}</p>{isPast && <LockIcon className="w-3 h-3 text-slate-300" />}</div>
             <p className={`text-[11px] font-bold mt-1 px-1 py-0.5 rounded inline-block ${isPast ? 'bg-slate-200 text-slate-500' : 'bg-indigo-50 text-indigo-600'}`}>{formatDate(date)}</p>
           </td>
           <td className="p-2 border-l border-slate-100">
             <button disabled={isPast} onClick={() => openSelectionModal(date, 'morning')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${!isPast && morningDrivers?.length ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : !isPast ? 'border-slate-200 text-slate-300 hover:border-indigo-300 hover:text-indigo-400' : ''} ${isPast && morningDrivers?.length ? 'bg-slate-200 border-slate-300 text-slate-500 shadow-none' : ''}`}>
-              {morningDrivers?.length ? renderDriverNames(morningDrivers) : <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>}
+              {morningDrivers?.length ? renderDriverNames(morningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (language === 'ar' ? '+ تعيين' : '+ Toewijzen')}</span>}
             </button>
           </td>
           <td className="p-2">
             <button disabled={isPast} onClick={() => openSelectionModal(date, 'evening')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${!isPast && eveningDrivers?.length ? 'bg-slate-800 border-slate-700 text-slate-100 shadow-lg' : !isPast ? 'border-slate-200 text-slate-300 hover:border-slate-400 hover:text-slate-500' : ''} ${isPast && eveningDrivers?.length ? 'bg-slate-700 border-slate-600 text-slate-400 shadow-none' : ''}`}>
-              {eveningDrivers?.length ? renderDriverNames(eveningDrivers) : <span className="text-xs">{isPast ? 'مغلق' : '+ تعيين'}</span>}
+              {eveningDrivers?.length ? renderDriverNames(eveningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (language === 'ar' ? '+ تعيين' : '+ Toewijzen')}</span>}
             </button>
           </td>
         </tr>
@@ -348,37 +355,42 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-4 ${language === 'nl' && 'md:order-2'}`}>
             <AlasaylLogo className="w-16 h-16 border-2 border-indigo-500/50 shadow-2xl" />
-            <div className="text-right">
+            <div className={language === 'ar' ? 'text-right' : 'text-left'}>
               <h1 className="text-xl md:text-2xl font-bold uppercase tracking-tight">Alasayl-my-work</h1>
-              <p className="text-indigo-100 text-[10px] md:text-xs opacity-80 font-medium">نظام جدولة السائقين المتكامل</p>
+              <p className="text-indigo-100 text-[10px] md:text-xs opacity-80 font-medium">{language === 'ar' ? 'نظام جدولة السائقين المتكامل' : 'Geïntegreerd planningssysteem voor chauffeurs'}</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 sm:gap-3 ${language === 'nl' && 'md:order-1'}`}>
              <button 
               onClick={handleShareToWhatsApp}
               disabled={!activeTable}
-              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-slate-400 disabled:cursor-not-allowed px-4 py-2 rounded-xl border border-green-400/30 transition-all shadow-sm active:scale-95 text-white"
+              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-slate-400 disabled:cursor-not-allowed px-3 sm:px-4 py-2 rounded-xl border border-green-400/30 transition-all shadow-sm active:scale-95 text-white"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.894 11.892-1.99 0-3.903-.52-5.586-1.456l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 4.315 1.731 6.086l.001.004 4.274-1.118-1.021-3.226-.004-.012-.001-.004c-.295-.948-.271-2.036.069-2.986l.004-.01c.219-.586.583-1.123 1.041-1.572l.002-.002.002-.002c.254-.255.532-.483.829-.683l.003-.002.002-.001c.328-.219.684-.396 1.051-.525l.002-.001.002-.001c.532-.193 1.1-.288 1.665-.288.566 0 1.134.095 1.666.288l.002.001.002.001c.367.129.723.306 1.052.525l.002.001.003.002c.297.2.575.428.829.683l.002.002.002.002c.458.449.822.986 1.041 1.572l.004.01c.34.95.364 2.038.069 2.986l-.001.004-.004.012-1.022 3.226 4.275 1.118.001-.004c1.08-1.77 1.732-3.86 1.731-6.085-.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.063.59 4.027 1.592 5.719l.004.009z"/></svg>
-              <span className="font-bold text-sm hidden sm:inline">واتساب</span>
+              <span className="font-bold text-sm hidden sm:inline">WhatsApp</span>
             </button>
              <button 
               onClick={goToToday}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl border border-indigo-400/30 transition-all shadow-sm active:scale-95"
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all shadow-sm active:scale-95"
             >
               <CalendarIcon className="w-5 h-5 text-indigo-100" />
-              <span className="font-bold text-sm hidden sm:inline">اليوم</span>
+              <span className="font-bold text-sm hidden sm:inline">{language === 'ar' ? 'اليوم' : 'Vandaag'}</span>
             </button>
 
             <div className="bg-indigo-900/50 rounded-xl p-1 flex items-center gap-1 border border-indigo-400/20">
-                <button onClick={() => setViewMode('weekly')} className={`px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'weekly' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}><CalendarDaysIcon className="w-4 h-4" /> أسبوعي</button>
-                <button onClick={() => setViewMode('monthly')} className={`px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'monthly' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}><CalendarRangeIcon className="w-4 h-4" /> شهري</button>
+                <button onClick={() => setViewMode('weekly')} className={`px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'weekly' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}><CalendarDaysIcon className="w-4 h-4" /> {language === 'ar' ? 'أسبوعي' : 'Wekelijks'}</button>
+                <button onClick={() => setViewMode('monthly')} className={`px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${viewMode === 'monthly' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}><CalendarRangeIcon className="w-4 h-4" /> {language === 'ar' ? 'شهري' : 'Maandelijks'}</button>
+            </div>
+            
+            <div className="bg-indigo-900/50 rounded-xl p-1 flex items-center gap-1 border border-indigo-400/20">
+                <button onClick={() => setLanguage('ar')} className={`px-3 py-1 rounded-lg text-sm font-bold transition-all ${language === 'ar' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}>AR</button>
+                <button onClick={() => setLanguage('nl')} className={`px-3 py-1 rounded-lg text-sm font-bold transition-all ${language === 'nl' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}>NL</button>
             </div>
           </div>
         </div>
@@ -389,19 +401,19 @@ const App: React.FC = () => {
           {/* DRIVER MANAGEMENT */}
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2"><PlusIcon className="w-4 h-4 text-indigo-600" />إضافة سائق جديد</h3>
+              <h3 className="font-bold text-slate-800 flex items-center gap-2"><PlusIcon className="w-4 h-4 text-indigo-600" />{language === 'ar' ? 'إضافة سائق جديد' : 'Nieuwe chauffeur toevoegen'}</h3>
             </div>
             <div className="p-5">
               <form onSubmit={handleAddDriver} className="space-y-3">
-                <input type="text" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder="اسم السائق..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm active:scale-95">حفظ السائق</button>
+                <input type="text" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder={language === 'ar' ? 'اسم السائق...' : 'Naam chauffeur...'} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm active:scale-95">{language === 'ar' ? 'حفظ السائق' : 'Chauffeur opslaan'}</button>
               </form>
             </div>
           </section>
 
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">قائمة السائقين</h3>
+              <h3 className="font-bold text-slate-800">{language === 'ar' ? 'قائمة السائقين' : 'Lijst van chauffeurs'}</h3>
               <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">{drivers.length}</span>
             </div>
             <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
@@ -427,7 +439,7 @@ const App: React.FC = () => {
                     )}
                   </div>
               ))}
-              {drivers.length === 0 && <div className="p-10 text-center text-slate-400 text-sm">لا يوجد سائقين مضافين</div>}
+              {drivers.length === 0 && <div className="p-10 text-center text-slate-400 text-sm">{language === 'ar' ? 'لا يوجد سائقين مضافين' : 'Geen chauffeurs toegevoegd'}</div>}
             </div>
           </section>
         </div>
@@ -438,9 +450,9 @@ const App: React.FC = () => {
                 <button onClick={() => viewMode === 'weekly' ? changeWeek(-1) : changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><ChevronRightIcon className="w-6 h-6 text-slate-500" /></button>
                 <div className="text-center">
                     {viewMode === 'weekly' ? (
-                        <h2 className="text-xl font-bold text-slate-800">أسبوع {currentWeek}</h2>
+                        <h2 className="text-xl font-bold text-slate-800">{language === 'ar' ? 'أسبوع' : 'Week'} {currentWeek}</h2>
                     ) : (
-                        <h2 className="text-xl font-bold text-slate-800">{getMonthNameAR(currentMonth)}</h2>
+                        <h2 className="text-xl font-bold text-slate-800">{language === 'ar' ? getMonthNameAR(currentMonth) : getMonthNameNL(currentMonth)}</h2>
                     )}
                     <p className="text-sm text-slate-500 font-medium">{currentYear}</p>
                 </div>
@@ -452,22 +464,47 @@ const App: React.FC = () => {
             {scheduleTables.map(table => (
               <div key={table.id} className="relative group">
                 <button onClick={() => setActiveTableId(table.id)} className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 rounded-t-lg transition-all font-bold text-sm ${activeTableId === table.id ? 'bg-white text-indigo-700 shadow-sm' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}><FileTextIcon className="w-4 h-4" /><span>{table.title}</span></button>
-                <button onClick={() => deleteScheduleTable(table.id)} className="absolute top-0 -right-1 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all"><XIcon className="w-3 h-3"/ ></button>
+                <button onClick={() => deleteScheduleTable(table.id)} className={`absolute top-0 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all ${language === 'ar' ? '-right-1' : '-left-1'}`}><XIcon className="w-3 h-3"/ ></button>
               </div>
             ))}
-            <button onClick={addScheduleTable} className="flex items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all font-bold text-sm"><PlusIcon className="w-4 h-4" /> إضافة جدول</button>
+            <button onClick={addScheduleTable} className="flex items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all font-bold text-sm"><PlusIcon className="w-4 h-4" /> {language === 'ar' ? 'إضافة جدول' : 'Tabel toevoegen'}</button>
           </div>
 
           {/* ACTIVE SCHEDULE CONTENT */}
           {activeTable ? (
             <div className="animate-in fade-in duration-300">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4 grid md:grid-cols-2 gap-4">
+                  <div>
+                      <label htmlFor="table-title" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'اسم الجدول' : 'Tabelnaam'}</label>
+                      <input
+                          id="table-title"
+                          type="text"
+                          value={activeTable.title}
+                          onChange={(e) => updateActiveTable({ title: e.target.value })}
+                          placeholder={language === 'ar' ? 'أدخل اسم الجدول' : 'Voer tabelnaam in'}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                      />
+                  </div>
+                  <div>
+                      <label htmlFor="route-info" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'معلومات الطريق/الخط' : 'Route-informatie'}</label>
+                      <input
+                          id="route-info"
+                          type="text"
+                          value={activeTable.routeInfo || ''}
+                          onChange={(e) => updateActiveTable({ routeInfo: e.target.value })}
+                          placeholder="e.g., Amsterdam - Utrecht"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                      />
+                  </div>
+                </div>
+
                 <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
-                    <table className="w-full border-collapse text-right">
+                    <table className="w-full border-collapse">
                     <thead>
                         <tr className="bg-slate-800 text-white">
-                        <th className="py-4 px-4 font-bold border-l border-slate-700 w-24">اليوم والتاريخ</th>
-                        <th className="py-4 px-4 text-center font-bold border-l border-slate-700"><div className="flex items-center justify-center gap-2"><SunIcon className="w-4 h-4 text-yellow-400" /><span>صباحي</span></div></th>
-                        <th className="py-4 px-4 text-center font-bold"><div className="flex items-center justify-center gap-2"><MoonIcon className="w-4 h-4 text-indigo-300" /><span>مسائي</span></div></th>
+                        <th className="py-4 px-4 font-bold border-l border-slate-700 w-24">{language === 'ar' ? 'اليوم والتاريخ' : 'Dag & Datum'}</th>
+                        <th className="py-4 px-4 text-center font-bold border-l border-slate-700"><div className="flex items-center justify-center gap-2"><SunIcon className="w-4 h-4 text-yellow-400" /><span>{language === 'ar' ? 'صباحي' : 'Ochtend'}</span></div></th>
+                        <th className="py-4 px-4 text-center font-bold"><div className="flex items-center justify-center gap-2"><MoonIcon className="w-4 h-4 text-indigo-300" /><span>{language === 'ar' ? 'مسائي' : 'Avond'}</span></div></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -479,16 +516,16 @@ const App: React.FC = () => {
           ) : (
             <div className="text-center py-20 px-4 bg-white rounded-2xl shadow-sm border border-slate-200">
               <FileTextIcon className="w-12 h-12 mx-auto text-slate-300" />
-              <h3 className="mt-4 text-lg font-bold text-slate-600">لا توجد جداول</h3>
-              <p className="mt-2 text-sm text-slate-400">ابدأ بإضافة جدول جديد لتتمكن من تعيين السائقين.</p>
-              <button onClick={addScheduleTable} className="mt-6 flex items-center mx-auto gap-2 px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all font-bold shadow-md active:scale-95"><PlusIcon className="w-5 h-5" /> إضافة جدول جديد</button>
+              <h3 className="mt-4 text-lg font-bold text-slate-600">{language === 'ar' ? 'لا توجد جداول' : 'Geen tabellen'}</h3>
+              <p className="mt-2 text-sm text-slate-400">{language === 'ar' ? 'ابدأ بإضافة جدول جديد لتتمكن من تعيين السائقين.' : 'Begin met het toevoegen van een nieuwe tabel om chauffeurs toe te wijzen.'}</p>
+              <button onClick={addScheduleTable} className="mt-6 flex items-center mx-auto gap-2 px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all font-bold shadow-md active:scale-95"><PlusIcon className="w-5 h-5" /> {language === 'ar' ? 'إضافة جدول جديد' : 'Nieuwe tabel toevoegen'}</button>
             </div>
           )}
         </div>
       </main>
       
       {/* MODALS */}
-      {selectionModal && activeTable && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"><div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="bg-indigo-700 p-6 text-white flex justify-between items-start relative"><div className="relative z-10"><h3 className="text-xl font-bold">اختيار السائقين</h3><p className="text-indigo-100 text-xs mt-1">{DAY_NAME_MAP_AR[selectionModal.date.getDay()]} {formatDate(selectionModal.date)} - {selectionModal.shift === 'morning' ? 'مناوبة صباحية' : 'مناوبة مسائية'}</p></div><button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10"><XIcon className="w-6 h-6" /></button></div><div className="p-2 bg-slate-50 max-h-[50vh] overflow-y-auto"><div className="p-2 space-y-2">{drivers.map(driver => { const isSelected = selectedDrivers.includes(driver.id); return (<button key={driver.id} onClick={() => toggleDriverSelection(driver.id)} className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between group ${isSelected ? 'bg-white border-indigo-500 shadow-md' : 'border-transparent bg-white hover:border-indigo-200'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{driver.name.charAt(0)}</div><span className={`font-bold transition-colors ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{driver.name}</span></div><div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-200'}`}>{isSelected && <CheckIcon className="w-4 h-4 text-white" />}</div></button>);})}{drivers.length === 0 && <div className="p-8 text-center text-slate-400"><p>يرجى إضافة سائق أولاً</p></div>}</div></div><div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2"><button onClick={handleAssignDrivers} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"><UserCheckIcon className="w-5 h-5" />حفظ التعيينات ({selectedDrivers.length})</button><button onClick={() => setSelectedDrivers([])} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-5 rounded-xl transition-all text-sm">إلغاء تحديد الكل</button></div></div></div>}
+      {selectionModal && activeTable && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"><div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="bg-indigo-700 p-6 text-white flex justify-between items-start relative"><div className="relative z-10"><h3 className="text-xl font-bold">{language === 'ar' ? 'اختيار السائقين' : 'Selecteer chauffeurs'}</h3><p className="text-indigo-100 text-xs mt-1">{(language === 'ar' ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL)[selectionModal.date.getDay()]} {formatDate(selectionModal.date)} - {selectionModal.shift === 'morning' ? (language === 'ar' ? 'مناوبة صباحية' : 'Ochtenddienst') : (language === 'ar' ? 'مناوبة مسائية' : 'Avonddienst')}</p></div><button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10"><XIcon className="w-6 h-6" /></button></div><div className="p-2 bg-slate-50 max-h-[50vh] overflow-y-auto"><div className="p-2 space-y-2">{drivers.map(driver => { const isSelected = selectedDrivers.includes(driver.id); return (<button key={driver.id} onClick={() => toggleDriverSelection(driver.id)} className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between group ${isSelected ? 'bg-white border-indigo-500 shadow-md' : 'border-transparent bg-white hover:border-indigo-200'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{driver.name.charAt(0)}</div><span className={`font-bold transition-colors ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{driver.name}</span></div><div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-200'}`}>{isSelected && <CheckIcon className="w-4 h-4 text-white" />}</div></button>);})}{drivers.length === 0 && <div className="p-8 text-center text-slate-400"><p>{language === 'ar' ? 'يرجى إضافة سائق أولاً' : 'Voeg eerst een chauffeur toe'}</p></div>}</div></div><div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2"><button onClick={handleAssignDrivers} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"><UserCheckIcon className="w-5 h-5" />{language === 'ar' ? 'حفظ التعيينات' : 'Toewijzingen opslaan'} ({selectedDrivers.length})</button><button onClick={() => setSelectedDrivers([])} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-5 rounded-xl transition-all text-sm">{language === 'ar' ? 'إلغاء تحديد الكل' : 'Alles deselecteren'}</button></div></div></div>}
 
       <footer className="max-w-7xl mx-auto px-4 mt-12 text-center">
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-200/50 rounded-full text-[10px] font-bold text-slate-500">
