@@ -63,9 +63,43 @@ const App: React.FC = () => {
   
   const activeTable = useMemo(() => scheduleTables.find(t => t.id === activeTableId), [scheduleTables, activeTableId]);
 
-  // --- DATA LOADING & SAVING ---
+    const getDayKey = (date: Date) => date.toISOString().split('T')[0]; // "YYYY-MM-DD"
 
-  const getDayKey = (date: Date) => date.toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const handleShareToWhatsApp = useCallback(() => {
+    if (!activeTable) {
+        alert('يرجى تحديد جدول للمشاركة.');
+        return;
+    }
+
+    const dates = viewMode === 'weekly' ? weekDates : monthDates;
+    let message = `*جدول: ${activeTable.title}*\n`;
+    if (activeTable.routeInfo) {
+        message += `*الخط: ${activeTable.routeInfo}*\n`;
+    }
+    message += '\n';
+
+    dates.forEach(date => {
+        const dayKey = getDayKey(date);
+        const dayName = DAY_NAME_MAP_AR[date.getDay()];
+        const formattedDate = formatDate(date);
+        const morningDrivers = activeTable.schedule[dayKey]?.morning?.drivers?.map(d => d.name).join('، ') || 'لا يوجد';
+        const eveningDrivers = activeTable.schedule[dayKey]?.evening?.drivers?.map(d => d.name).join('، ') || 'لا يوجد';
+
+        message += `*${dayName} - ${formattedDate}*\n`;
+        message += `☀️ *صباحي:* ${morningDrivers}\n`;
+        message += `🌙 *مسائي:* ${eveningDrivers}\n`;
+        message += `-------------------\n`;
+    });
+    
+    message += `\nتم إنشاؤه بواسطة Alasayl-my-work`;
+
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodedMessage}`;
+    window.open(whatsappUrl, '_blank');
+
+  }, [activeTable, viewMode, weekDates, monthDates, getDayKey]);
+
+  // --- DATA LOADING & SAVING ---
 
   const loadDataForDate = useCallback((date: Date) => {
     const dataKey = `schedule_data_d_${getDayKey(date)}`;
@@ -326,6 +360,14 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-3">
+             <button 
+              onClick={handleShareToWhatsApp}
+              disabled={!activeTable}
+              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-slate-400 disabled:cursor-not-allowed px-4 py-2 rounded-xl border border-green-400/30 transition-all shadow-sm active:scale-95 text-white"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.894 11.892-1.99 0-3.903-.52-5.586-1.456l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 4.315 1.731 6.086l.001.004 4.274-1.118-1.021-3.226-.004-.012-.001-.004c-.295-.948-.271-2.036.069-2.986l.004-.01c.219-.586.583-1.123 1.041-1.572l.002-.002.002-.002c.254-.255.532-.483.829-.683l.003-.002.002-.001c.328-.219.684-.396 1.051-.525l.002-.001.002-.001c.532-.193 1.1-.288 1.665-.288.566 0 1.134.095 1.666.288l.002.001.002.001c.367.129.723.306 1.052.525l.002.001.003.002c.297.2.575.428.829.683l.002.002.002.002c.458.449.822.986 1.041 1.572l.004.01c.34.95.364 2.038.069 2.986l-.001.004-.004.012-1.022 3.226 4.275 1.118.001-.004c1.08-1.77 1.732-3.86 1.731-6.085-.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.063.59 4.027 1.592 5.719l.004.009z"/></svg>
+              <span className="font-bold text-sm hidden sm:inline">واتساب</span>
+            </button>
              <button 
               onClick={goToToday}
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl border border-indigo-400/30 transition-all shadow-sm active:scale-95"
