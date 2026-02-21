@@ -1,17 +1,20 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  PlusIcon, TrashIcon, MapPinIcon, UserCheckIcon, 
+  PlusIcon, TrashIcon, LogOutIcon, UserCheckIcon, 
   XIcon, SunIcon, MoonIcon, Share2Icon, 
-  DownloadIcon, FileJsonIcon, CopyIcon, CheckIcon, 
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon,
-  FileTextIcon, Edit2Icon, CalendarIcon, ViewIcon, EyeIcon, CalendarRangeIcon
+  FileTextIcon, Edit2Icon, CalendarIcon, CalendarRangeIcon,
+  CheckIcon // Added CheckIcon for edit functionality
 } from 'lucide-react';
+import { Session } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
 import { 
   getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast,
   getDaysInMonth, getMonthNameAR, getMonthNameNL
 } from './utils';
+import { supabase } from './api/supabase';
+import Auth from './Auth';
 
 const DAY_NAME_MAP_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DAY_NAME_MAP_NL = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag'];
@@ -31,6 +34,33 @@ const AlasaylLogo = ({ className = "w-12 h-12" }: { className?: string }) => (
 );
 
 const App: React.FC = () => {
+  const [session, setSession] = useState<Session | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!session) {
+    return <Auth />;
+  } else {
+    return <ScheduleApp session={session} />;
+  }
+}
+
+// The main application is now its own component
+const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
+  // Role & Permissions State
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const isAdmin = userRole === 'admin';
+
   // Core Data State
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [scheduleTables, setScheduleTables] = useState<ScheduleTable[]>([]);
@@ -54,109 +84,126 @@ const App: React.FC = () => {
 
   // Input & Modal State
   const [inputName, setInputName] = useState('');
-  const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [editingDriverId, setEditingDriverId] = useState<number | null>(null);
   const [editingDriverName, setEditingDriverName] = useState('');
   const [selectionModal, setSelectionModal] = useState<{ date: Date; shift: ShiftType } | null>(null);
-  const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
+  const [selectedDrivers, setSelectedDrivers] = useState<number[]>([]);
   
   const activeTable = useMemo(() => scheduleTables.find(t => t.id === activeTableId), [scheduleTables, activeTableId]);
   
   const getDayKey = (date: Date) => date.toISOString().split('T')[0]; // "YYYY-MM-DD"
 
-  const handleShareToWhatsApp = useCallback(() => {
-    if (!activeTable) {
-        alert(language === 'ar' ? 'يرجى تحديد جدول للمشاركة.' : 'Selecteer een tabel om te delen.');
-        return;
-    }
-
-    const dates = viewMode === 'weekly' ? weekDates : monthDates;
-    const isArabic = language === 'ar';
-
-    let message = `*${isArabic ? 'جدول' : 'Schema'}: ${activeTable.title}*\n`;
-    if (activeTable.routeInfo) {
-        message += `*${isArabic ? 'الخط' : 'Route'}: ${activeTable.routeInfo}*\n`;
-    }
-    message += '\n';
-
-    const dayNameMap = isArabic ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL;
-
-    dates.forEach(date => {
-        const dayKey = getDayKey(date);
-        const dayName = dayNameMap[date.getDay()];
-        const formattedDate = formatDate(date);
-
-        const morningDrivers = activeTable.schedule[dayKey]?.morning?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
-        const eveningDrivers = activeTable.schedule[dayKey]?.evening?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
-
-        message += `*${dayName} - ${formattedDate}*\n`;
-        message += `☀️ *${isArabic ? 'صباحي' : 'Ochtend'}:* ${morningDrivers}\n`;
-        message += `🌙 *${isArabic ? 'مسائي' : 'Avond'}:* ${eveningDrivers}\n`;
-        message += `-------------------\n`;
-    });
-    
-    message += `\n${isArabic ? 'تم إنشاؤه بواسطة' : 'Gegenereerd door'} Alasayl-my-work`;
-
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodedMessage}`;
-    window.open(whatsappUrl, '_blank');
-
-  }, [activeTable, viewMode, weekDates, monthDates, getDayKey, language]);
-  
-  // --- DATA LOADING & SAVING ---
-
-  const loadDataForDate = useCallback((date: Date) => {
-    const dataKey = `schedule_data_d_${getDayKey(date)}`;
-    try {
-      const savedData = localStorage.getItem(dataKey);
-      if (savedData) return JSON.parse(savedData);
-    } catch (e) { console.error("Error parsing data for", date, e); }
-    return [];
-  }, []);
-
-  const saveDataForDate = useCallback((date: Date, data: ScheduleTable[]) => {
-    const dataKey = `schedule_data_d_${getDayKey(date)}`;
-    if (data.length > 0) {
-        localStorage.setItem(dataKey, JSON.stringify(data));
-    } else {
-        localStorage.removeItem(dataKey);
-    }
-  }, []);
-
+  // --- PERMISSIONS & DATA LOADING ---
   useEffect(() => {
-    try {
-      const savedDrivers = localStorage.getItem('drivers_pool');
-      if (savedDrivers) setDrivers(JSON.parse(savedDrivers));
-    } catch (error) { console.error("Failed to parse drivers pool:", error); localStorage.removeItem('drivers_pool'); }
-
-    const data = loadDataForDate(currentDate);
-    setScheduleTables(data);
-    setActiveTableId(data.length > 0 ? data[0].id : null);
-  }, [currentDate, loadDataForDate]);
-
-  useEffect(() => {
-    localStorage.setItem('drivers_pool', JSON.stringify(drivers));
-  }, [drivers]);
-
-  useEffect(() => {
-    saveDataForDate(currentDate, scheduleTables);
-  }, [scheduleTables, currentDate, saveDataForDate]);
-
-
-  // --- CRUD for Schedule Tables ---
-  const addScheduleTable = () => {
-    const newTable: ScheduleTable = {
-      id: crypto.randomUUID(),
-      title: `${language === 'ar' ? 'جدول' : 'Tabel'} ${scheduleTables.length + 1}`,
-      routeInfo: '',
-      schedule: {}
+    // Fetch user role first
+    const fetchUserRole = async () => {
+      if (!session.user) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching user role:', error.message);
+        // Default to 'user' role on error for security
+        setUserRole('user');
+      } else if (data) {
+        setUserRole(data.role);
+      }
     };
+
+    fetchUserRole();
+  }, [session]);
+
+  useEffect(() => {
+    // Fetch initial data on component mount
+    const fetchInitialData = async () => {
+      // Fetch drivers
+      const { data: driversData, error: driversError } = await supabase.from('drivers').select('*').order('name');
+      if (driversError) console.error('Error fetching drivers:', driversError);
+      else setDrivers(driversData || []);
+
+      // Fetch schedule tables
+      const { data: tablesData, error: tablesError } = await supabase.from('schedule_tables').select('*').order('created_at');
+      if (tablesError) console.error('Error fetching schedule tables:', tablesError);
+      else {
+        setScheduleTables(tablesData.map(t => ({...t, schedule: {}})) || []);
+        if (tablesData && tablesData.length > 0) {
+          setActiveTableId(tablesData[0].id);
+        }
+      }
+    };
+    if(session) fetchInitialData();
+  }, [session]);
+
+  // Effect to fetch schedule entries when view changes
+  useEffect(() => {
+    const fetchScheduleData = async () => {
+      if (!activeTableId) return;
+
+      const dates = viewMode === 'weekly' ? weekDates : monthDates;
+      const startDate = getDayKey(dates[0]);
+      const endDate = getDayKey(dates[dates.length - 1]);
+
+      const { data, error } = await supabase
+        .from('schedule')
+        .select('*')
+        .eq('table_id', activeTableId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (error) {
+        console.error('Error fetching schedule data:', error);
+        return;
+      }
+      
+      const newSchedule: WeeklySchedule = {};
+      data.forEach(entry => {
+        const dayKey = entry.date;
+        if (!newSchedule[dayKey]) {
+          newSchedule[dayKey] = {};
+        }
+        newSchedule[dayKey][entry.shift] = { drivers: entry.drivers || [] };
+      });
+
+      setScheduleTables(prev => 
+        prev.map(t => t.id === activeTableId ? { ...t, schedule: newSchedule } : t)
+      );
+    };
+
+    if(activeTableId) fetchScheduleData();
+  }, [activeTableId, currentDate, viewMode]);
+
+
+  // --- CRUD for Schedule Tables (Admin only) ---
+  const addScheduleTable = async () => {
+    if (!isAdmin) return;
+    const newTitle = `${language === 'ar' ? 'جدول' : 'Tabel'} ${scheduleTables.length + 1}`;
+    const { data, error } = await supabase.from('schedule_tables').insert({ title: newTitle }).select();
+    
+    if (error || !data) {
+      console.error("Error adding schedule table:", error);
+      return;
+    }
+    
+    const newTable: ScheduleTable = {...data[0], schedule: {}};
     setScheduleTables(prev => [...prev, newTable]);
     setActiveTableId(newTable.id);
   };
 
-  const deleteScheduleTable = (idToDelete: string) => {
+  const deleteScheduleTable = async (idToDelete: string) => {
+    if (!isAdmin) return;
     const confirmMessage = language === 'ar' ? 'هل أنت متأكد من حذف هذا الجدول؟' : 'Weet je zeker dat je deze tabel wilt verwijderen?';
     if (!confirm(confirmMessage)) return;
+
+    const { error } = await supabase.from('schedule_tables').delete().eq('id', idToDelete);
+
+    if (error) {
+        console.error("Error deleting table:", error);
+        return;
+    }
+
     setScheduleTables(prev => {
       const newTables = prev.filter(t => t.id !== idToDelete);
       if (activeTableId === idToDelete) {
@@ -166,115 +213,78 @@ const App: React.FC = () => {
     });
   };
 
-  const updateActiveTable = (updates: Partial<Omit<ScheduleTable, 'id' | 'schedule'>>) => {
-    if (!activeTableId) return;
+  const updateActiveTable = async (updates: Partial<Omit<ScheduleTable, 'id' | 'schedule'>>) => {
+    if (!isAdmin || !activeTableId) return;
+    
     setScheduleTables(prev => prev.map(t => t.id === activeTableId ? { ...t, ...updates } : t));
+
+    const { error } = await supabase.from('schedule_tables').update(updates).eq('id', activeTableId);
+    if(error) {
+        console.error("Error updating table:", error);
+    }
   };
 
-  // --- DRIVER & SCHEDULE LOGIC ---
-  const handleAddDriver = (e: React.FormEvent) => {
+  // --- DRIVER & SCHEDULE LOGIC (Admin only for modifications) ---
+  const handleAddDriver = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputName.trim()) return;
-    setDrivers(prev => [{ id: crypto.randomUUID(), name: inputName.trim(), addedAt: new Date().toISOString() }, ...prev]);
+    if (!isAdmin || !inputName.trim()) return;
+
+    const { data, error } = await supabase.from('drivers').insert({ name: inputName.trim() }).select();
+
+    if (error || !data) {
+        console.error("Error adding driver:", error);
+        return;
+    }
+    setDrivers(prev => [data[0], ...prev]);
     setInputName('');
   };
 
   const handleStartEdit = (driver: Driver) => { setEditingDriverId(driver.id); setEditingDriverName(driver.name); };
   const handleCancelEdit = () => { setEditingDriverId(null); setEditingDriverName(''); };
 
-  const handleSaveDriverName = (driverId: string) => {
+  const handleSaveDriverName = async (driverId: number) => {
+    if (!isAdmin) return;
     const newName = editingDriverName.trim();
     if (!newName) return alert(language === 'ar' ? "اسم السائق لا يمكن أن يكون فارغاً." : "Chauffeursnaam mag niet leeg zijn.");
 
-    setDrivers(prev => prev.map(d => (d.id === driverId ? { ...d, name: newName } : d)));
-
-    // Update name across all saved schedules
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('schedule_data_d_')) {
-            try {
-                const data = JSON.parse(localStorage.getItem(key)!);
-                if (Array.isArray(data)) {
-                    const updatedData = data.map((table: ScheduleTable) => {
-                        const newSchedule = { ...table.schedule };
-                        Object.keys(newSchedule).forEach(dateKey => {
-                            const daySchedule = newSchedule[dateKey];
-                            const updateDriver = (d: DriverInfo) => d.id === driverId ? { ...d, name: newName } : d;
-                            if (daySchedule.morning?.drivers) daySchedule.morning.drivers = daySchedule.morning.drivers.map(updateDriver);
-                            if (daySchedule.evening?.drivers) daySchedule.evening.drivers = daySchedule.evening.drivers.map(updateDriver);
-                        });
-                        return { ...table, schedule: newSchedule };
-                    });
-                    localStorage.setItem(key, JSON.stringify(updatedData));
-                }
-            } catch (e) { console.error(`Failed to update driver name in ${key}:`, e); }
-        }
+    const { error } = await supabase.from('drivers').update({ name: newName }).eq('id', driverId);
+    if (error) {
+        console.error("Error updating driver name:", error);
+        return;
     }
-
-    setScheduleTables(prev => prev.map(table => {
-        const newSchedule = { ...table.schedule };
-        Object.keys(newSchedule).forEach(dateKey => {
-            const daySchedule = newSchedule[dateKey];
-            const updateDriver = (d: DriverInfo) => d.id === driverId ? { ...d, name: newName } : d;
-            if (daySchedule.morning?.drivers) daySchedule.morning.drivers = daySchedule.morning.drivers.map(updateDriver);
-            if (daySchedule.evening?.drivers) daySchedule.evening.drivers = daySchedule.evening.drivers.map(updateDriver);
-        });
-        return { ...table, schedule: newSchedule };
-    }));
-
+    
+    setDrivers(prev => prev.map(d => (d.id === driverId ? { ...d, name: newName } : d)));
+    
     handleCancelEdit();
   };
 
-  const handleDeleteDriver = (id: string) => {
-    const confirmMessage = language === 'ar' ? 'هل أنت متأكد من حذف هذا السائق؟ سيتم إزالته من جميع الجداول والمناوبات.' : 'Weet je zeker dat je deze chauffeur wilt verwijderen? Hij wordt uit alle tabellen en diensten verwijderd.';
+  const handleDeleteDriver = async (id: number) => {
+    if (!isAdmin) return;
+    const confirmMessage = language === 'ar' ? 'هل أنت متأكد من حذف هذا السائق؟' : 'Weet je zeker dat je deze chauffeur wilt verwijderen?';
     if (confirm(confirmMessage)) {
-        setDrivers(prev => prev.filter(d => d.id !== id));
-         for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('schedule_data_d_')) {
-                 try {
-                    const data = JSON.parse(localStorage.getItem(key)!);
-                     if (Array.isArray(data)) {
-                        const updatedData = data.map((table: ScheduleTable) => {
-                            const newSchedule = { ...table.schedule };
-                            Object.keys(newSchedule).forEach(dateKey => {
-                                const daySchedule = newSchedule[dateKey];
-                                if (daySchedule.morning?.drivers) daySchedule.morning.drivers = daySchedule.morning.drivers.filter(d => d.id !== id);
-                                if (daySchedule.evening?.drivers) daySchedule.evening.drivers = daySchedule.evening.drivers.filter(d => d.id !== id);
-                            });
-                            return { ...table, schedule: newSchedule };
-                        });
-                        localStorage.setItem(key, JSON.stringify(updatedData));
-                    }
-                } catch (e) { console.error(`Failed to delete driver from ${key}:`, e); }
-            }
+        const { error } = await supabase.from('drivers').delete().eq('id', id);
+        if (error) {
+            console.error("Error deleting driver:", error);
+            return;
         }
-        setScheduleTables(prev => prev.map(table => {
-            const newSchedule = { ...table.schedule };
-            Object.keys(newSchedule).forEach(dateKey => {
-                const daySchedule = newSchedule[dateKey];
-                if (daySchedule.morning?.drivers) daySchedule.morning.drivers = daySchedule.morning.drivers.filter(d => d.id !== id);
-                if (daySchedule.evening?.drivers) daySchedule.evening.drivers = daySchedule.evening.drivers.filter(d => d.id !== id);
-            });
-            return { ...table, schedule: newSchedule };
-        }));
+        setDrivers(prev => prev.filter(d => d.id !== id));
     }
   };
   
   const openSelectionModal = (date: Date, shift: ShiftType) => {
-    if (isDateInPast(date) || !activeTable) return;
+    if (!isAdmin || isDateInPast(date) || !activeTable) return;
     const dayKey = getDayKey(date);
     const currentDrivers = activeTable.schedule[dayKey]?.[shift]?.drivers.map(d => d.id) || [];
     setSelectedDrivers(currentDrivers);
     setSelectionModal({ date, shift });
   }
 
-  const toggleDriverSelection = (driverId: string) => {
+  const toggleDriverSelection = (driverId: number) => {
     setSelectedDrivers(prev => prev.includes(driverId) ? prev.filter(id => id !== driverId) : [...prev, driverId]);
   }
 
-  const handleAssignDrivers = () => {
-    if (!selectionModal || !activeTableId) return;
+  const handleAssignDrivers = async () => {
+    if (!isAdmin || !selectionModal || !activeTableId) return;
     const { date, shift } = selectionModal;
     const dayKey = getDayKey(date);
 
@@ -284,22 +294,58 @@ const App: React.FC = () => {
 
     setScheduleTables(prev => prev.map(table => {
       if (table.id !== activeTableId) return table;
-      
-      const newSchedule: WeeklySchedule = {
-        ...table.schedule,
-        [dayKey]: {
-          ...table.schedule[dayKey],
-          [shift]: newDriverInfos.length > 0 ? { drivers: newDriverInfos } : null
-        }
-      };
+      const newSchedule: WeeklySchedule = { ...table.schedule };
+      if (!newSchedule[dayKey]) newSchedule[dayKey] = {};
+      newSchedule[dayKey][shift] = newDriverInfos.length > 0 ? { drivers: newDriverInfos } : null;
       return { ...table, schedule: newSchedule };
     }));
-
+    
     setSelectionModal(null);
     setSelectedDrivers([]);
-  };
 
-  // --- NAVIGATION ---
+    const { error } = await supabase.from('schedule').upsert({
+        table_id: activeTableId,
+        date: dayKey,
+        shift: shift,
+        drivers: newDriverInfos.length > 0 ? newDriverInfos : null
+    }, { onConflict: 'table_id,date,shift' });
+
+    if (error) {
+        console.error("Error assigning drivers:", error);
+    }
+  };
+  
+  // --- OTHER LOGIC (Read-only, available to all) ---
+  const handleShareToWhatsApp = useCallback(() => {
+    if (!activeTable) {
+        alert(language === 'ar' ? 'يرجى تحديد جدول للمشاركة.' : 'Selecteer een tabel om te delen.');
+        return;
+    }
+    const dates = viewMode === 'weekly' ? weekDates : monthDates;
+    const isArabic = language === 'ar';
+    let message = `*${isArabic ? 'جدول' : 'Schema'}: ${activeTable.title}*\n`;
+    if (activeTable.routeInfo) {
+        message += `*${isArabic ? 'الخط' : 'Route'}: ${activeTable.routeInfo}*\n`;
+    }
+    message += '\n';
+    const dayNameMap = isArabic ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL;
+    dates.forEach(date => {
+        const dayKey = getDayKey(date);
+        const dayName = dayNameMap[date.getDay()];
+        const formattedDate = formatDate(date);
+        const morningDrivers = activeTable.schedule[dayKey]?.morning?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
+        const eveningDrivers = activeTable.schedule[dayKey]?.evening?.drivers?.map(d => d.name).join(', ') || (isArabic ? 'لا يوجد' : 'Geen');
+        message += `*${dayName} - ${formattedDate}*\n`;
+        message += `☀️ *${isArabic ? 'صباحي' : 'Ochtend'}:* ${morningDrivers}\n`;
+        message += `🌙 *${isArabic ? 'مسائي' : 'Avond'}:* ${eveningDrivers}\n`;
+        message += `-------------------\n`;
+    });
+    message += `\n${isArabic ? 'تم إنشاؤه بواسطة' : 'Gegenereerd door'} Alasayl-my-work`;
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodedMessage}`;
+    window.open(whatsappUrl, '_blank');
+  }, [activeTable, viewMode, weekDates, monthDates, getDayKey, language]);
+
   const changeWeek = (offset: number) => {
       const newDate = new Date(currentDate);
       newDate.setDate(newDate.getDate() + (offset * 7));
@@ -333,6 +379,7 @@ const App: React.FC = () => {
       const dayName = (language === 'ar' ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL)[date.getDay()];
       const morningDrivers = activeTable?.schedule[dayKey]?.morning?.drivers;
       const eveningDrivers = activeTable?.schedule[dayKey]?.evening?.drivers;
+      const canEdit = isAdmin && !isPast;
       
       return (
         <tr key={dayKey} className={`transition-colors ${isPast ? 'bg-slate-100/50' : 'hover:bg-indigo-50/30'}`}>
@@ -341,22 +388,34 @@ const App: React.FC = () => {
             <p className={`text-[11px] font-bold mt-1 px-1 py-0.5 rounded inline-block ${isPast ? 'bg-slate-200 text-slate-500' : 'bg-indigo-50 text-indigo-600'}`}>{formatDate(date)}</p>
           </td>
           <td className="p-2 border-l border-slate-100">
-            <button disabled={isPast} onClick={() => openSelectionModal(date, 'morning')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${!isPast && morningDrivers?.length ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : !isPast ? 'border-slate-200 text-slate-300 hover:border-indigo-300 hover:text-indigo-400' : ''} ${isPast && morningDrivers?.length ? 'bg-slate-200 border-slate-300 text-slate-500 shadow-none' : ''}`}>
-              {morningDrivers?.length ? renderDriverNames(morningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (language === 'ar' ? '+ تعيين' : '+ Toewijzen')}</span>}
+            <button disabled={!canEdit} onClick={() => openSelectionModal(date, 'morning')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${!canEdit ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${canEdit && morningDrivers?.length ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : canEdit ? 'border-slate-200 text-slate-300 hover:border-indigo-300 hover:text-indigo-400' : ''} ${isPast && morningDrivers?.length ? 'bg-slate-200 border-slate-300 text-slate-500 shadow-none' : ''}`}>
+              {morningDrivers?.length ? renderDriverNames(morningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (canEdit ? (language === 'ar' ? '+ تعيين' : '+ Toewijzen') : (language === 'ar' ? 'عرض' : 'Bekijken'))}</span>}
             </button>
           </td>
           <td className="p-2">
-            <button disabled={isPast} onClick={() => openSelectionModal(date, 'evening')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${isPast ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${!isPast && eveningDrivers?.length ? 'bg-slate-800 border-slate-700 text-slate-100 shadow-lg' : !isPast ? 'border-slate-200 text-slate-300 hover:border-slate-400 hover:text-slate-500' : ''} ${isPast && eveningDrivers?.length ? 'bg-slate-700 border-slate-600 text-slate-400 shadow-none' : ''}`}>
-              {eveningDrivers?.length ? renderDriverNames(eveningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (language === 'ar' ? '+ تعيين' : '+ Toewijzen')}</span>}
+            <button disabled={!canEdit} onClick={() => openSelectionModal(date, 'evening')} className={`w-full min-h-[60px] p-3 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 ${!canEdit ? 'opacity-50 cursor-not-allowed bg-slate-50 border-slate-200' : ''} ${canEdit && eveningDrivers?.length ? 'bg-slate-800 border-slate-700 text-slate-100 shadow-lg' : canEdit ? 'border-slate-200 text-slate-300 hover:border-slate-400 hover:text-slate-500' : ''} ${isPast && eveningDrivers?.length ? 'bg-slate-700 border-slate-600 text-slate-400 shadow-none' : ''}`}>
+              {eveningDrivers?.length ? renderDriverNames(eveningDrivers) : <span className="text-xs">{isPast ? (language === 'ar' ? 'مغلق' : 'Gesloten') : (canEdit ? (language === 'ar' ? '+ تعيين' : '+ Toewijzen') : (language === 'ar' ? 'عرض' : 'Bekijken'))}</span>}
             </button>
           </td>
         </tr>
       );
   }
 
+  // Show a loading indicator while fetching the user's role
+  if (userRole === null) {
+    return (
+        <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+            <div className="text-center">
+                <AlasaylLogo className="w-24 h-24 mx-auto mb-4" />
+                <p className="font-bold text-slate-600 animate-pulse">Loading User Permissions...</p>
+            </div>
+        </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-      <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
+       <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className={`flex items-center gap-4 ${language === 'nl' && 'md:order-2'}`}>
             <AlasaylLogo className="w-16 h-16 border-2 border-indigo-500/50 shadow-2xl" />
@@ -392,24 +451,32 @@ const App: React.FC = () => {
                 <button onClick={() => setLanguage('ar')} className={`px-3 py-1 rounded-lg text-sm font-bold transition-all ${language === 'ar' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}>AR</button>
                 <button onClick={() => setLanguage('nl')} className={`px-3 py-1 rounded-lg text-sm font-bold transition-all ${language === 'nl' ? 'bg-white text-indigo-700 shadow-sm' : 'text-indigo-200 hover:bg-white/10'}`}>NL</button>
             </div>
+             <button 
+              onClick={() => supabase.auth.signOut()}
+              className="flex items-center gap-2 bg-red-500 hover:bg-red-600 px-3 sm:px-4 py-2 rounded-xl border border-red-400/30 transition-all shadow-sm active:scale-95"
+            >
+              <LogOutIcon className="w-5 h-5 text-white" />
+            </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column: Admin Controls & Driver List */}
         <div className="lg:col-span-4 space-y-6 order-2 lg:order-1">
-          {/* DRIVER MANAGEMENT */}
-          <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2"><PlusIcon className="w-4 h-4 text-indigo-600" />{language === 'ar' ? 'إضافة سائق جديد' : 'Nieuwe chauffeur toevoegen'}</h3>
-            </div>
-            <div className="p-5">
-              <form onSubmit={handleAddDriver} className="space-y-3">
-                <input type="text" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder={language === 'ar' ? 'اسم السائق...' : 'Naam chauffeur...'} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm active:scale-95">{language === 'ar' ? 'حفظ السائق' : 'Chauffeur opslaan'}</button>
-              </form>
-            </div>
-          </section>
+          {isAdmin && (
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-300">
+              <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2"><PlusIcon className="w-4 h-4 text-indigo-600" />{language === 'ar' ? 'إضافة سائق جديد' : 'Nieuwe chauffeur toevoegen'}</h3>
+              </div>
+              <div className="p-5">
+                <form onSubmit={handleAddDriver} className="space-y-3">
+                  <input type="text" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder={language === 'ar' ? 'اسم السائق...' : 'Naam chauffeur...'} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" />
+                  <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm active:scale-95">{language === 'ar' ? 'حفظ السائق' : 'Chauffeur opslaan'}</button>
+                </form>
+              </div>
+            </section>
+          )}
 
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
@@ -419,7 +486,7 @@ const App: React.FC = () => {
             <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
               {drivers.map(driver => (
                   <div key={driver.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
-                    {editingDriverId === driver.id ? (
+                    {isAdmin && editingDriverId === driver.id ? (
                       <div className="flex-1 flex items-center gap-2">
                         <input type="text" value={editingDriverName} onChange={(e) => setEditingDriverName(e.target.value)} className="w-full px-2 py-1 rounded border border-indigo-300 focus:ring-2 focus:ring-indigo-500 outline-none" autoFocus onKeyDown={(e) => e.key === 'Enter' && handleSaveDriverName(driver.id)} />
                         <button onClick={() => handleSaveDriverName(driver.id)} className="p-1.5 text-green-500 hover:bg-green-100 rounded-lg"><CheckIcon className="w-4 h-4" /></button>
@@ -431,10 +498,12 @@ const App: React.FC = () => {
                           <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs">{driver.name.charAt(0)}</div>
                           <span className="font-medium text-slate-700">{driver.name}</span>
                         </div>
-                        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleStartEdit(driver)} className="p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg"><Edit2Icon className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteDriver(driver.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><TrashIcon className="w-4 h-4" /></button>
-                        </div>
+                        {isAdmin && (
+                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => handleStartEdit(driver)} className="p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg"><Edit2Icon className="w-4 h-4" /></button>
+                                <button onClick={() => handleDeleteDriver(driver.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><TrashIcon className="w-4 h-4" /></button>
+                            </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -444,7 +513,8 @@ const App: React.FC = () => {
           </section>
         </div>
 
-        <div className="lg:col-span-8 space-y-4 order-1 lg:order-2">
+        {/* Right Column: Schedule View */}
+        <div className={`lg:col-span-8 space-y-4 order-1 lg:order-2 ${!isAdmin ? 'lg:col-span-12' : ''}`}>
             {/* --- VIEW HEADER --- */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex justify-between items-center">
                 <button onClick={() => viewMode === 'weekly' ? changeWeek(-1) : changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><ChevronRightIcon className="w-6 h-6 text-slate-500" /></button>
@@ -464,39 +534,41 @@ const App: React.FC = () => {
             {scheduleTables.map(table => (
               <div key={table.id} className="relative group">
                 <button onClick={() => setActiveTableId(table.id)} className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 rounded-t-lg transition-all font-bold text-sm ${activeTableId === table.id ? 'bg-white text-indigo-700 shadow-sm' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}><FileTextIcon className="w-4 h-4" /><span>{table.title}</span></button>
-                <button onClick={() => deleteScheduleTable(table.id)} className={`absolute top-0 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all ${language === 'ar' ? '-right-1' : '-left-1'}`}><XIcon className="w-3 h-3"/ ></button>
+                {isAdmin && <button onClick={() => deleteScheduleTable(table.id)} className={`absolute top-0 p-0.5 bg-slate-200 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all ${language === 'ar' ? '-right-1' : '-left-1'}`}><XIcon className="w-3 h-3"/ ></button>}
               </div>
             ))}
-            <button onClick={addScheduleTable} className="flex items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all font-bold text-sm"><PlusIcon className="w-4 h-4" /> {language === 'ar' ? 'إضافة جدول' : 'Tabel toevoegen'}</button>
+            {isAdmin && <button onClick={addScheduleTable} className="flex items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all font-bold text-sm"><PlusIcon className="w-4 h-4" /> {language === 'ar' ? 'إضافة جدول' : 'Tabel toevoegen'}</button>}
           </div>
 
           {/* ACTIVE SCHEDULE CONTENT */}
           {activeTable ? (
             <div className="animate-in fade-in duration-300">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4 grid md:grid-cols-2 gap-4">
-                  <div>
-                      <label htmlFor="table-title" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'اسم الجدول' : 'Tabelnaam'}</label>
-                      <input
-                          id="table-title"
-                          type="text"
-                          value={activeTable.title}
-                          onChange={(e) => updateActiveTable({ title: e.target.value })}
-                          placeholder={language === 'ar' ? 'أدخل اسم الجدول' : 'Voer tabelnaam in'}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                      />
-                  </div>
-                  <div>
-                      <label htmlFor="route-info" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'معلومات الطريق/الخط' : 'Route-informatie'}</label>
-                      <input
-                          id="route-info"
-                          type="text"
-                          value={activeTable.routeInfo || ''}
-                          onChange={(e) => updateActiveTable({ routeInfo: e.target.value })}
-                          placeholder="e.g., Amsterdam - Utrecht"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                      />
-                  </div>
-                </div>
+                {isAdmin && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4 grid md:grid-cols-2 gap-4">
+                      <div>
+                          <label htmlFor="table-title" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'اسم الجدول' : 'Tabelnaam'}</label>
+                          <input
+                              id="table-title"
+                              type="text"
+                              value={activeTable.title}
+                              onChange={(e) => updateActiveTable({ title: e.target.value })}
+                              placeholder={language === 'ar' ? 'أدخل اسم الجدول' : 'Voer tabelnaam in'}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                          />
+                      </div>
+                      <div>
+                          <label htmlFor="route-info" className="text-sm font-bold text-slate-600 block mb-1">{language === 'ar' ? 'معلومات الطريق/الخط' : 'Route-informatie'}</label>
+                          <input
+                              id="route-info"
+                              type="text"
+                              value={activeTable.routeInfo || ''}
+                              onChange={(e) => updateActiveTable({ routeInfo: e.target.value })}
+                              placeholder="e.g., Amsterdam - Utrecht"
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                          />
+                      </div>
+                    </div>
+                )}
 
                 <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
                     <table className="w-full border-collapse">
@@ -516,16 +588,16 @@ const App: React.FC = () => {
           ) : (
             <div className="text-center py-20 px-4 bg-white rounded-2xl shadow-sm border border-slate-200">
               <FileTextIcon className="w-12 h-12 mx-auto text-slate-300" />
-              <h3 className="mt-4 text-lg font-bold text-slate-600">{language === 'ar' ? 'لا توجد جداول' : 'Geen tabellen'}</h3>
-              <p className="mt-2 text-sm text-slate-400">{language === 'ar' ? 'ابدأ بإضافة جدول جديد لتتمكن من تعيين السائقين.' : 'Begin met het toevoegen van een nieuwe tabel om chauffeurs toe te wijzen.'}</p>
-              <button onClick={addScheduleTable} className="mt-6 flex items-center mx-auto gap-2 px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all font-bold shadow-md active:scale-95"><PlusIcon className="w-5 h-5" /> {language === 'ar' ? 'إضافة جدول جديد' : 'Nieuwe tabel toevoegen'}</button>
+              <h3 className="mt-4 text-lg font-bold text-slate-600">{language === 'ar' ? 'لم يتم تحديد جدول' : 'Geen tabel geselecteerd'}</h3>
+              <p className="mt-2 text-sm text-slate-400">{language === 'ar' ? 'اختر جدولاً لعرضه، أو أضف جدولاً جديداً.' : 'Selecteer een tabel om te bekijken, of voeg een nieuwe toe.'}</p>
+              {isAdmin && <button onClick={addScheduleTable} className="mt-6 flex items-center mx-auto gap-2 px-6 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all font-bold shadow-md active:scale-95"><PlusIcon className="w-5 h-5" /> {language === 'ar' ? 'إضافة جدول جديد' : 'Nieuwe tabel toevoegen'}</button>}
             </div>
           )}
         </div>
       </main>
       
-      {/* MODALS */}
-      {selectionModal && activeTable && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"><div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="bg-indigo-700 p-6 text-white flex justify-between items-start relative"><div className="relative z-10"><h3 className="text-xl font-bold">{language === 'ar' ? 'اختيار السائقين' : 'Selecteer chauffeurs'}</h3><p className="text-indigo-100 text-xs mt-1">{(language === 'ar' ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL)[selectionModal.date.getDay()]} {formatDate(selectionModal.date)} - {selectionModal.shift === 'morning' ? (language === 'ar' ? 'مناوبة صباحية' : 'Ochtenddienst') : (language === 'ar' ? 'مناوبة مسائية' : 'Avonddienst')}</p></div><button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10"><XIcon className="w-6 h-6" /></button></div><div className="p-2 bg-slate-50 max-h-[50vh] overflow-y-auto"><div className="p-2 space-y-2">{drivers.map(driver => { const isSelected = selectedDrivers.includes(driver.id); return (<button key={driver.id} onClick={() => toggleDriverSelection(driver.id)} className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between group ${isSelected ? 'bg-white border-indigo-500 shadow-md' : 'border-transparent bg-white hover:border-indigo-200'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{driver.name.charAt(0)}</div><span className={`font-bold transition-colors ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{driver.name}</span></div><div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-200'}`}>{isSelected && <CheckIcon className="w-4 h-4 text-white" />}</div></button>);})}{drivers.length === 0 && <div className="p-8 text-center text-slate-400"><p>{language === 'ar' ? 'يرجى إضافة سائق أولاً' : 'Voeg eerst een chauffeur toe'}</p></div>}</div></div><div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2"><button onClick={handleAssignDrivers} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"><UserCheckIcon className="w-5 h-5" />{language === 'ar' ? 'حفظ التعيينات' : 'Toewijzingen opslaan'} ({selectedDrivers.length})</button><button onClick={() => setSelectedDrivers([])} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-5 rounded-xl transition-all text-sm">{language === 'ar' ? 'إلغاء تحديد الكل' : 'Alles deselecteren'}</button></div></div></div>}
+      {/* MODALS (Admin only) */}
+      {isAdmin && selectionModal && activeTable && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"><div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="bg-indigo-700 p-6 text-white flex justify-between items-start relative"><div className="relative z-10"><h3 className="text-xl font-bold">{language === 'ar' ? 'اختيار السائقين' : 'Selecteer chauffeurs'}</h3><p className="text-indigo-100 text-xs mt-1">{(language === 'ar' ? DAY_NAME_MAP_AR : DAY_NAME_MAP_NL)[selectionModal.date.getDay()]} {formatDate(selectionModal.date)} - {selectionModal.shift === 'morning' ? (language === 'ar' ? 'مناوبة صباحية' : 'Ochtenddienst') : (language === 'ar' ? 'مناوبة مسائية' : 'Avonddienst')}</p></div><button onClick={() => setSelectionModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors relative z-10"><XIcon className="w-6 h-6" /></button></div><div className="p-2 bg-slate-50 max-h-[50vh] overflow-y-auto"><div className="p-2 space-y-2">{drivers.map(driver => { const isSelected = selectedDrivers.includes(driver.id); return (<button key={driver.id} onClick={() => toggleDriverSelection(driver.id)} className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between group ${isSelected ? 'bg-white border-indigo-500 shadow-md' : 'border-transparent bg-white hover:border-indigo-200'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{driver.name.charAt(0)}</div><span className={`font-bold transition-colors ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{driver.name}</span></div><div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-200'}`}>{isSelected && <CheckIcon className="w-4 h-4 text-white" />}</div></button>);})}{drivers.length === 0 && <div className="p-8 text-center text-slate-400"><p>{language === 'ar' ? 'يرجى إضافة سائق أولاً' : 'Voeg eerst een chauffeur toe'}</p></div>}</div></div><div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2"><button onClick={handleAssignDrivers} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"><UserCheckIcon className="w-5 h-5" />{language === 'ar' ? 'حفظ التعيينات' : 'Toewijzingen opslaan'} ({selectedDrivers.length})</button><button onClick={() => setSelectedDrivers([])} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-5 rounded-xl transition-all text-sm">{language === 'ar' ? 'إلغاء تحديد الكل' : 'Alles deselecteren'}</button></div></div></div>}
 
       <footer className="max-w-7xl mx-auto px-4 mt-12 text-center">
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-200/50 rounded-full text-[10px] font-bold text-slate-500">
