@@ -5,7 +5,7 @@ import {
   XIcon, SunIcon, MoonIcon, Share2Icon, 
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon,
   FileTextIcon, Edit2Icon, CalendarIcon, CalendarRangeIcon,
-  CheckIcon, UserCogIcon
+  CheckIcon, UserCogIcon, KeyRoundIcon
 } from 'lucide-react';
 import { Session, User } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
@@ -15,7 +15,7 @@ import {
 } from './utils';
 import { supabase } from './api/supabase';
 import Auth from './Auth';
-import UpdatePassword from './src/UpdatePassword'; // Correct path
+import UpdatePassword from './src/UpdatePassword';
 
 const DAY_NAME_MAP_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DAY_NAME_MAP_NL = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag'];
@@ -54,6 +54,7 @@ const App: React.FC = () => {
 
   const handlePasswordUpdated = () => {
     setIsPasswordRecovery(false);
+    // Clear the #access_token from the URL
     window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
     supabase.auth.signOut();
   };
@@ -385,62 +386,102 @@ const UserManagement: React.FC<{ session: Session; onBack: () => void; language:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordUpdateMessage, setPasswordUpdateMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const t = {
+    userManagement: language === 'ar' ? 'إدارة المستخدمين' : 'Gebruikersbeheer',
+    back: language === 'ar' ? 'رجوع' : 'Terug',
+    loadingUsers: language === 'ar' ? 'جار تحميل المستخدمين...' : 'Gebruikers laden...',
+    errorOccurred: language === 'ar' ? 'حدث خطأ' : 'An Error Occurred',
+    errorHint: language === 'ar' ? 'تأكد من نشر دالة Supabase وتفعيل سياسات RLS الصحيحة.' : 'Please ensure the Supabase function is deployed and RLS policies are correct.',
+    user: language === 'ar' ? 'مستخدم' : 'Gebruiker',
+    admin: language === 'ar' ? 'مشرف' : 'Beheerder',
+    you: language === 'ar' ? 'أنت' : 'Jij',
+    changePassword: language === 'ar' ? 'تغيير كلمة المرور' : 'Wachtwoord wijzigen',
+    updatePasswordTitle: language === 'ar' ? 'تحديث كلمة المرور' : 'Wachtwoord bijwerken',
+    newPasswordPlaceholder: language === 'ar' ? 'كلمة المرور الجديدة' : 'Nieuw wachtwoord',
+    confirmPasswordPlaceholder: language === 'ar' ? 'تأكيد كلمة المرور' : 'Bevestig wachtwoord',
+    updateButton: language === 'ar' ? 'تحديث' : 'Bijwerken',
+    cancelButton: language === 'ar' ? 'إلغاء' : 'Annuleren',
+    passwordsDoNotMatch: language === 'ar' ? 'كلمتا المرور غير متطابقتين!' : 'Wachtwoorden komen niet overeen!',
+    passwordTooShort: language === 'ar' ? 'يجب أن تكون كلمة المرور 6 أحرف على الأقل.' : 'Wachtwoord moet minimaal 6 tekens lang zijn.',
+    updateSuccess: language === 'ar' ? 'تم تحديث كلمة المرور بنجاح!' : 'Wachtwoord succesvol bijgewerkt!',
+    updateError: language === 'ar' ? 'فشل تحديث كلمة المرور.' : 'Wachtwoord bijwerken mislukt.',
+    updating: language === 'ar' ? 'جاري التحديث...' : 'Bezig met bijwerken...'
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordUpdateMessage(null);
+
+    if (newPassword !== confirmPassword) {
+      setPasswordUpdateMessage({ text: t.passwordsDoNotMatch, type: 'error' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordUpdateMessage({ text: t.passwordTooShort, type: 'error' });
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setIsUpdatingPassword(false);
+
+    if (error) {
+      setPasswordUpdateMessage({ text: `${t.updateError} ${error.message}`, type: 'error' });
+    } else {
+      setPasswordUpdateMessage({ text: t.updateSuccess, type: 'success' });
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setIsPasswordModalOpen(false);
+        setPasswordUpdateMessage(null);
+      }, 2000);
+    }
+  };
+  
+  const openPasswordModal = () => {
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordUpdateMessage(null);
+    setIsPasswordModalOpen(true);
+  };
+
   useEffect(() => {
     const fetchUsers = async () => {
       setLoading(true);
       setError(null);
-
       try {
-        // Get the most recent session which may contain a refreshed token
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError || !currentSession) {
-          throw new Error(sessionError?.message || "Authentication session not found. Please log in again.");
-        }
-
+        if (sessionError || !currentSession) throw new Error(sessionError?.message || "Authentication session not found.");
         const { data, error: functionsError } = await supabase.functions.invoke('get-users', {
-          headers: {
-            'Authorization': `Bearer ${currentSession.access_token}`
-          }
+          headers: { 'Authorization': `Bearer ${currentSession.access_token}` }
         });
-
-        if (functionsError) {
-          throw functionsError;
-        }
-
+        if (functionsError) throw functionsError;
         setUsers(data);
-
       } catch (e: any) {
         console.error("Error invoking get-users function:", e);
-        
-        try {
-          // Try to parse the error from the function context
-          const errorBody = await e.context.json(); 
-          const detailedError = errorBody.error || JSON.stringify(errorBody);
-          setError(`Function error: ${detailedError}`);
-        } catch (parseError) {
-          // Fallback to the general error message if parsing fails
-          setError(`An unknown error occurred: ${e.message}`);
-        }
+        const errorMsg = e.context?.json ? (await e.context.json()).error : e.message;
+        setError(errorMsg || `An unknown error occurred.`);
       } finally {
         setLoading(false);
       }
     };
-
     fetchUsers();
-  }, []); // Depend on session to re-fetch if the user logs out/in
+  }, []);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     if (userId === session.user.id) { 
         alert(language === 'ar' ? 'لا يمكنك تغيير دورك' : 'You cannot change your own role.'); 
         return; 
     }
-    
-    const originalUsers = users;
+    const originalUsers = [...users];
     setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
-
     const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
-    
     if (error) { 
       alert('Failed to update role.'); 
       setUsers(originalUsers);
@@ -449,24 +490,21 @@ const UserManagement: React.FC<{ session: Session; onBack: () => void; language:
 
   return (
     <div className="min-h-screen bg-slate-100" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-      <header className="bg-indigo-700 text-white sticky top-0 z-20"><div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><h1 className="text-xl font-bold">{language === 'ar' ? 'إدارة المستخدمين' : 'Gebruikersbeheer'}</h1><button onClick={onBack} className="flex items-center gap-2 bg-indigo-600 px-4 py-2 rounded-xl"><span className="font-bold text-sm">{language === 'ar' ? 'رجوع' : 'Terug'}</span></button></div></header>
+      <header className="bg-indigo-700 text-white sticky top-0 z-20"><div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><h1 className="text-xl font-bold">{t.userManagement}</h1><button onClick={onBack} className="flex items-center gap-2 bg-indigo-600 px-4 py-2 rounded-xl"><span className="font-bold text-sm">{t.back}</span></button></div></header>
       <main className="max-w-4xl mx-auto px-4 mt-8">
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
           <div className="divide-y divide-slate-100">
             {loading ? (
-              <div className="p-10 text-center text-slate-500">{language === 'ar' ? 'جار تحميل المستخدمين...' : 'Gebruikers laden...'}</div>
+              <div className="p-10 text-center text-slate-500">{t.loadingUsers}</div>
             ) : error ? (
               <div className="p-10 text-center text-red-600 bg-red-50">
-                <p className="font-bold mb-2">{language === 'ar' ? 'حدث خطأ' : 'An Error Occurred'}</p>
+                <p className="font-bold mb-2">{t.errorOccurred}</p>
                 <p className="text-sm">{error}</p>
-                <p className="text-xs mt-4 text-slate-500">{language === 'ar' ? 'تأكد من نشر دالة Supabase وتفعيل سياسات RLS الصحيحة.' : 'Please ensure the Supabase function is deployed and RLS policies are correct.'}</p>
+                <p className="text-xs mt-4 text-slate-500">{t.errorHint}</p>
               </div>
             ) : users.map(user => (
               <div key={user.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold text-slate-800">{user.email}</p>
-                  <p className="text-sm text-slate-500">ID: {user.id}</p>
-                </div>
+                <p className="font-bold text-slate-800">{user.email}</p>
                 <div className="flex items-center gap-2">
                   <select 
                     value={user.role}
@@ -474,16 +512,64 @@ const UserManagement: React.FC<{ session: Session; onBack: () => void; language:
                     disabled={user.id === session.user.id} 
                     className="px-3 py-2 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                   >
-                    <option value="user">{language === 'ar' ? 'مستخدم' : 'Gebruiker'}</option>
-                    <option value="admin">{language === 'ar' ? 'مشرف' : 'Beheerder'}</option>
+                    <option value="user">{t.user}</option>
+                    <option value="admin">{t.admin}</option>
                   </select>
-                  {user.id === session.user.id && <span className="text-xs text-slate-400 font-bold">({language === 'ar' ? 'أنت' : 'Jij'})</span>}
+                  {user.id === session.user.id && (
+                    <>
+                      <span className="text-xs text-slate-400 font-bold">({t.you})</span>
+                      <button onClick={openPasswordModal} title={t.changePassword} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <KeyRoundIcon className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         </div>
       </main>
+
+      {isPasswordModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60" dir={language === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl">
+            <form onSubmit={handleUpdatePassword}>
+              <div className="p-6 border-b">
+                <h3 className="text-lg font-bold text-slate-800">{t.updatePasswordTitle}</h3>
+              </div>
+              <div className="p-6 space-y-4">
+                <input
+                  type="password"
+                  placeholder={t.newPasswordPlaceholder}
+                  value={newPassword}
+                  required
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500"
+                />
+                <input
+                  type="password"
+                  placeholder={t.confirmPasswordPlaceholder}
+                  value={confirmPassword}
+                  required
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500"
+                />
+                {passwordUpdateMessage && (
+                  <div className={`p-3 rounded-lg text-sm font-semibold ${passwordUpdateMessage.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                    {passwordUpdateMessage.text}
+                  </div>
+                )}
+              </div>
+              <div className="p-4 bg-slate-50 border-t flex items-center justify-end gap-3">
+                <button type="button" onClick={() => setIsPasswordModalOpen(false)} className="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-200 transition-colors">{t.cancelButton}</button>
+                <button type="submit" disabled={isUpdatingPassword} className="px-6 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 transition-colors">
+                  {isUpdatingPassword ? t.updating : t.updateButton}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
