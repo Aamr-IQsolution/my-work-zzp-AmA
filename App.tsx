@@ -7,7 +7,7 @@ import {
   FileTextIcon, Edit2Icon, CalendarIcon, CalendarRangeIcon,
   CheckIcon, UserCogIcon
 } from 'lucide-react';
-import { Session } from '@supabase/supabase-js';
+import { Session, User } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
 import { 
   getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast,
@@ -383,33 +383,107 @@ interface UserProfile {
 const UserManagement: React.FC<{ session: Session; onBack: () => void; language: 'ar' | 'nl' }> = ({ session, onBack, language }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUsers = async () => {
-      const { data, error } = await supabase.from('profiles').select('id, role, user_data:raw_user_meta_data');
-      if (error) {
-        console.error("Error fetching users:", error);
-        alert('Failed to fetch users.');
-      } else {
-        const formattedUsers = data.map((u: any) => ({ id: u.id, email: u.user_data?.email || 'N/A', role: u.role }));
-        setUsers(formattedUsers as UserProfile[]);
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Get the most recent session which may contain a refreshed token
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError || !currentSession) {
+          throw new Error(sessionError?.message || "Authentication session not found. Please log in again.");
+        }
+
+        const { data, error: functionsError } = await supabase.functions.invoke('get-users', {
+          headers: {
+            'Authorization': `Bearer ${currentSession.access_token}`
+          }
+        });
+
+        if (functionsError) {
+          throw functionsError;
+        }
+
+        setUsers(data);
+
+      } catch (e: any) {
+        console.error("Error invoking get-users function:", e);
+        
+        try {
+          // Try to parse the error from the function context
+          const errorBody = await e.context.json(); 
+          const detailedError = errorBody.error || JSON.stringify(errorBody);
+          setError(`Function error: ${detailedError}`);
+        } catch (parseError) {
+          // Fallback to the general error message if parsing fails
+          setError(`An unknown error occurred: ${e.message}`);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
+
     fetchUsers();
-  }, []);
+  }, []); // Depend on session to re-fetch if the user logs out/in
 
   const updateUserRole = async (userId: string, newRole: string) => {
-    if (userId === session.user.id) { alert(language === 'ar' ? 'لا يمكنك تغيير دورك' : 'You cannot change your own role.'); return; }
+    if (userId === session.user.id) { 
+        alert(language === 'ar' ? 'لا يمكنك تغيير دورك' : 'You cannot change your own role.'); 
+        return; 
+    }
+    
+    const originalUsers = users;
+    setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+
     const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
-    if (error) { alert('Failed to update role.'); } 
-    else { setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u)); }
+    
+    if (error) { 
+      alert('Failed to update role.'); 
+      setUsers(originalUsers);
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-100" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       <header className="bg-indigo-700 text-white sticky top-0 z-20"><div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><h1 className="text-xl font-bold">{language === 'ar' ? 'إدارة المستخدمين' : 'Gebruikersbeheer'}</h1><button onClick={onBack} className="flex items-center gap-2 bg-indigo-600 px-4 py-2 rounded-xl"><span className="font-bold text-sm">{language === 'ar' ? 'رجوع' : 'Terug'}</span></button></div></header>
-      <main className="max-w-4xl mx-auto px-4 mt-8"><div className="bg-white rounded-2xl shadow-sm border"><div className="divide-y">{loading ? <div className="p-10 text-center">{language === 'ar' ? 'جار التحميل...' : 'Laden...'}</div> : users.map(user => (<div key={user.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"><div><p className="font-bold">{user.email}</p><p className="text-sm">ID: {user.id}</p></div><div className="flex items-center gap-2"><select value={user.role} onChange={(e) => updateUserRole(user.id, e.target.value)} disabled={user.id === session.user.id} className="px-3 py-2 rounded-lg border bg-white"><option value="user">{language === 'ar' ? 'مستخدم' : 'Gebruiker'}</option><option value="admin">{language === 'ar' ? 'مشرف' : 'Beheerder'}</option></select>{user.id === session.user.id && <span className="text-xs font-bold">({language === 'ar' ? 'أنت' : 'Jij'})</span>}</div></div>))}</div></div></main>
+      <main className="max-w-4xl mx-auto px-4 mt-8">
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {loading ? (
+              <div className="p-10 text-center text-slate-500">{language === 'ar' ? 'جار تحميل المستخدمين...' : 'Gebruikers laden...'}</div>
+            ) : error ? (
+              <div className="p-10 text-center text-red-600 bg-red-50">
+                <p className="font-bold mb-2">{language === 'ar' ? 'حدث خطأ' : 'An Error Occurred'}</p>
+                <p className="text-sm">{error}</p>
+                <p className="text-xs mt-4 text-slate-500">{language === 'ar' ? 'تأكد من نشر دالة Supabase وتفعيل سياسات RLS الصحيحة.' : 'Please ensure the Supabase function is deployed and RLS policies are correct.'}</p>
+              </div>
+            ) : users.map(user => (
+              <div key={user.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-bold text-slate-800">{user.email}</p>
+                  <p className="text-sm text-slate-500">ID: {user.id}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select 
+                    value={user.role}
+                    onChange={(e) => updateUserRole(user.id, e.target.value)}
+                    disabled={user.id === session.user.id} 
+                    className="px-3 py-2 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="user">{language === 'ar' ? 'مستخدم' : 'Gebruiker'}</option>
+                    <option value="admin">{language === 'ar' ? 'مشرف' : 'Beheerder'}</option>
+                  </select>
+                  {user.id === session.user.id && <span className="text-xs text-slate-400 font-bold">({language === 'ar' ? 'أنت' : 'Jij'})</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
