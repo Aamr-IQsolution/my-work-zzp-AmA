@@ -5,9 +5,9 @@ import {
   XIcon, SunIcon, MoonIcon, Share2Icon, 
   LockIcon, ChevronRightIcon, ChevronLeftIcon, CalendarDaysIcon, UsersIcon,
   FileTextIcon, Edit2Icon, CalendarIcon, CalendarRangeIcon,
-  CheckIcon // Added CheckIcon for edit functionality
+  CheckIcon, UserCogIcon
 } from 'lucide-react';
-import { Session } from '@supabase/supabase-js';
+import { Session, User } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable } from './types';
 import { 
   getISOWeek, getCurrentYear, getDatesForISOWeek, formatDate, isDateInPast,
@@ -61,6 +61,9 @@ const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
   const isAdmin = userRole === 'admin';
 
+  // UI State
+  const [showUserManagement, setShowUserManagement] = useState(false);
+
   // Core Data State
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [scheduleTables, setScheduleTables] = useState<ScheduleTable[]>([]);
@@ -106,7 +109,7 @@ const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
       
       if (error) {
         console.error('Error fetching user role:', error.message);
-        // Default to 'user' role on error for security
+        // Default to 'user' role on security
         setUserRole('user');
       } else if (data) {
         setUserRole(data.role);
@@ -413,6 +416,10 @@ const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
     );
   }
 
+  if (showUserManagement) {
+    return <UserManagement session={session} onBack={() => setShowUserManagement(false)} language={language} />
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20" dir={language === 'ar' ? 'rtl' : 'ltr'}>
        <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
@@ -425,7 +432,16 @@ const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
             </div>
           </div>
           
-          <div className={`flex items-center gap-2 sm:gap-3 ${language === 'nl' && 'md:order-1'}`}>
+          <div className={`flex items-center flex-wrap gap-2 sm:gap-3 ${language === 'nl' && 'md:order-1'}`}>
+            {isAdmin && (
+              <button 
+                onClick={() => setShowUserManagement(true)}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all shadow-sm active:scale-95"
+              >
+                <UserCogIcon className="w-5 h-5 text-indigo-100" />
+                <span className="font-bold text-sm hidden sm:inline">{language === 'ar' ? 'إدارة المستخدمين' : 'Gebruikersbeheer'}</span>
+              </button>
+            )}
              <button 
               onClick={handleShareToWhatsApp}
               disabled={!activeTable}
@@ -610,5 +626,98 @@ const ScheduleApp: React.FC<{ session: Session }> = ({ session }) => {
     </div>
   );
 };
+
+interface UserProfile {
+  id: string;
+  email: string;
+  role: string;
+}
+
+const UserManagement: React.FC<{ session: Session; onBack: () => void; language: 'ar' | 'nl' }> = ({ session, onBack, language }) => {
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      // Note: Supabase admin functions are required to fetch all users' data.
+      // This will only work if run in a secure server environment with admin privileges.
+      // The following is a placeholder and might not work based on your RLS policies.
+      const { data, error } = await supabase.from('profiles').select('id, role, user_data:raw_user_meta_data');
+
+      if (error) {
+        console.error("Error fetching users:", error);
+        alert('Failed to fetch users. Check console for details.');
+      } else {
+        const formattedUsers = data.map((u: any) => ({ 
+            id: u.id, 
+            email: u.user_data?.email || 'No email found',
+            role: u.role
+        }));
+        setUsers(formattedUsers as UserProfile[]);
+      }
+      setLoading(false);
+    };
+
+    fetchUsers();
+  }, []);
+
+  const updateUserRole = async (userId: string, newRole: string) => {
+    // Prevent admin from changing their own role
+    if (userId === session.user.id) {
+        alert(language === 'ar' ? 'لا يمكنك تغيير دورك.' : 'You cannot change your own role.');
+        return;
+    }
+
+    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    if (error) {
+      console.error("Error updating user role:", error);
+      alert(language === 'ar' ? 'فشل تحديث دور المستخدم.' : 'Failed to update user role.');
+    } else {
+      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100" dir={language === 'ar' ? 'rtl' : 'ltr'}>
+      <header className="bg-indigo-700 text-white shadow-lg sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+          <h1 className="text-xl font-bold">{language === 'ar' ? 'إدارة المستخدمين' : 'Gebruikersbeheer'}</h1>
+          <button onClick={onBack} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl transition-all shadow-sm active:scale-95">
+            {language === 'ar' ? <ChevronRightIcon className="w-5 h-5" /> : <ChevronLeftIcon className="w-5 h-5" />}
+            <span className="font-bold text-sm">{language === 'ar' ? 'رجوع' : 'Terug'}</span>
+          </button>
+        </div>
+      </header>
+      <main className="max-w-4xl mx-auto px-4 mt-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {loading ? (
+              <div className="p-10 text-center text-slate-500">{language === 'ar' ? 'جار تحميل المستخدمين...' : 'Gebruikers laden...'}</div>
+            ) : users.map(user => (
+              <div key={user.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-bold text-slate-800">{user.email}</p>
+                  <p className="text-sm text-slate-500">ID: {user.id}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select 
+                    value={user.role}
+                    onChange={(e) => updateUserRole(user.id, e.target.value)}
+                    disabled={user.id === session.user.id} // Disable changing own role
+                    className="px-3 py-2 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="user">{language === 'ar' ? 'مستخدم' : 'Gebruiker'}</option>
+                    <option value="admin">{language === 'ar' ? 'مشرف' : 'Beheerder'}</option>
+                  </select>
+                  {user.id === session.user.id && <span className="text-xs text-slate-400 font-bold">({language === 'ar' ? 'أنت' : 'Jij'})</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
 
 export default App;
