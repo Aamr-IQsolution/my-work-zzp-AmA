@@ -471,8 +471,10 @@ const UserManagement: React.FC<{ session: Session; onBack: () => void; language:
         setLoading(false);
       }
     };
-    fetchUsers();
-  }, []);
+    if (session) {
+      fetchUsers();
+    }
+  }, [session]);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     if (userId === session.user.id) { 
