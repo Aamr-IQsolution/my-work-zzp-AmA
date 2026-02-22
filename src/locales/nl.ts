@@ -1,4 +1,3 @@
-
 export const nl = {
   // General
   general: {
@@ -11,6 +10,15 @@ export const nl = {
     confirmAction: 'Weet u het zeker?',
     nameRequired: 'Naam is verplicht',
     loading: 'Laden...',
+    addToHomeScreen: 'App installeren', // Changed text for clarity
+    close: 'Sluiten',
+  },
+
+  // PWA Install Instructions
+  pwa: {
+    installTitle: 'App installeren',
+    installInstructionsAndroid: 'Om de app te installeren, tikt u op het browsermenu (⋮) en kiest u \'App installeren\' of \'Toevoegen aan startscherm\'.',
+    installInstructionsDesktop: 'Zoek in de adresbalk van uw browser naar het installatiepictogram (meestal een scherm met een pijl omlaag) om de app op uw desktop te installeren.',
   },
   
   // Auth.tsx

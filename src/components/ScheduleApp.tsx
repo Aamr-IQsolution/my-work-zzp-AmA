@@ -4,7 +4,7 @@ import {
   PlusIcon, LogOutIcon, UserCheckIcon,
   XIcon, Share2Icon,
   FileTextIcon, CalendarIcon,
-  UserCogIcon, DownloadIcon
+  UserCogIcon, DownloadIcon, SmartphoneIcon, MonitorIcon
 } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable as ScheduleTableType } from '../types.ts';
@@ -30,16 +30,6 @@ interface ScheduleAppProps {
   setLanguage: (language: 'ar' | 'nl') => void;
 }
 
-// Extend the window interface to include our event type
-interface BeforeInstallPromptEvent extends Event {
-  readonly platforms: Array<string>;
-  readonly userChoice: Promise<{
-    outcome: 'accepted' | 'dismissed',
-    platform: string
-  }>;
-  prompt(): Promise<void>;
-}
-
 const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguage }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [showUserManagement, setShowUserManagement] = useState(false);
@@ -53,7 +43,7 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
   const [editingDriverName, setEditingDriverName] = useState('');
   const [selectionModal, setSelectionModal] = useState<{ date: Date; shift: ShiftType } | null>(null);
   const [selectedDrivers, setSelectedDrivers] = useState<number[]>([]);
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   const t = useTranslations(language);
   const isAdmin = userRole === 'admin';
@@ -66,32 +56,8 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
   const activeTable = useMemo(() => scheduleTables.find(t => t.id === activeTableId), [scheduleTables, activeTableId]);
   
   const getDayKey = (date: Date) => date.toISOString().split('T')[0];
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
   
-  const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        console.log('User accepted the A2HS prompt');
-      } else {
-        console.log('User dismissed the A2HS prompt');
-      }
-      setDeferredPrompt(null);
-    }
-  };
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -287,12 +253,10 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
           </div>
           
           <div className={`flex items-center flex-wrap gap-2 sm:gap-3 ${language === 'nl' && 'md:order-1'}`}>
-            {deferredPrompt && (
-              <button onClick={handleInstallClick} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-3 sm:px-4 py-2 rounded-xl border border-purple-400/30 transition-all">
-                <DownloadIcon className="w-5 h-5" />
-                <span className="font-bold text-sm hidden sm:inline">{t.general.addToHomeScreen}</span>
-              </button>
-            )}
+            <button onClick={() => setShowInstallModal(true)} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-3 sm:px-4 py-2 rounded-xl border border-purple-400/30 transition-all">
+              <DownloadIcon className="w-5 h-5" />
+              <span className="font-bold text-sm hidden sm:inline">{t.general.addToHomeScreen}</span>
+            </button>
             {isAdmin && <button onClick={() => setShowUserManagement(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all"><UserCogIcon className="w-5 h-5" /> <span className="font-bold text-sm hidden sm:inline">{t.scheduleApp.manageUsers}</span></button>}
             <button onClick={handleShareToWhatsApp} disabled={!activeTable} className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-slate-400 px-3 sm:px-4 py-2 rounded-xl border border-green-400/30 transition-all text-white"><Share2Icon className="w-5 h-5" /><span className="font-bold text-sm hidden sm:inline">WhatsApp</span></button>
             <button onClick={goToToday} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all"><CalendarIcon className="w-5 h-5" /> <span className="font-bold text-sm hidden sm:inline">{t.scheduleApp.today}</span></button>
@@ -369,6 +333,31 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
           handleAssignDrivers={handleAssignDrivers}
           setSelectedDrivers={setSelectedDrivers}
         />
+      )}
+
+      {showInstallModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowInstallModal(false)} dir={language === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 m-4 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">{t.pwa.installTitle} <DownloadIcon className="w-6 h-6 text-indigo-600" /></h2>
+            <div className="mt-6 space-y-4">
+              <div className="bg-slate-50 border-s-4 border-indigo-500 p-4 rounded-lg">
+                <div className="flex items-center gap-3">
+                  {isMobile ? <SmartphoneIcon className="w-8 h-8 text-slate-600" /> : <MonitorIcon className="w-8 h-8 text-slate-600" />}
+                  <p className="text-sm text-slate-700 font-medium">
+                    {isMobile ? t.pwa.installInstructionsAndroid : t.pwa.installInstructionsDesktop}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button 
+                onClick={() => setShowInstallModal(false)} 
+                className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors">
+                  {t.general.close}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <footer className="max-w-7xl mx-auto px-4 mt-12 text-center text-[10px] font-bold text-slate-500"><div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-200/50 rounded-full"><AlasaylLogo className="w-6 h-6" /><span>&copy; {currentYear} Alasayl-my-work</span></div></footer>

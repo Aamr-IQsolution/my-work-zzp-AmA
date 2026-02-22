@@ -10,7 +10,15 @@ export const ar = {
     confirmAction: 'هل أنت متأكد؟',
     nameRequired: 'الاسم مطلوب',
     loading: 'جاري التحميل...',
-    addToHomeScreen: 'أضف للشاشة الرئيسية',
+    addToHomeScreen: 'تثبيت التطبيق', // Changed text for clarity
+    close: 'إغلاق',
+  },
+
+  // PWA Install Instructions
+  pwa: {
+    installTitle: 'تثبيت التطبيق',
+    installInstructionsAndroid: 'لتثبيت التطبيق، اضغط على قائمة المتصفح (⋮) ثم اختر \'تثبيت التطبيق\' أو \'إضافة إلى الشاشة الرئيسية\'.',
+    installInstructionsDesktop: 'لتثبيت التطبيق على جهاز الكمبيوتر، ابحث عن أيقونة التثبيت (عادةً شاشة بها سهم لأسفل) في شريط عنوان المتصفح.',
   },
   
   // Auth.tsx
