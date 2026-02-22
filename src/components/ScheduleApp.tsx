@@ -4,7 +4,7 @@ import {
   PlusIcon, LogOutIcon, UserCheckIcon,
   XIcon, Share2Icon,
   FileTextIcon, CalendarIcon,
-  UserCogIcon
+  UserCogIcon, DownloadIcon
 } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 import { Driver, WeeklySchedule, ShiftType, DriverInfo, ScheduleTable as ScheduleTableType } from '../types.ts';
@@ -30,6 +30,16 @@ interface ScheduleAppProps {
   setLanguage: (language: 'ar' | 'nl') => void;
 }
 
+// Extend the window interface to include our event type
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: Array<string>;
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed',
+    platform: string
+  }>;
+  prompt(): Promise<void>;
+}
+
 const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguage }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [showUserManagement, setShowUserManagement] = useState(false);
@@ -43,6 +53,7 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
   const [editingDriverName, setEditingDriverName] = useState('');
   const [selectionModal, setSelectionModal] = useState<{ date: Date; shift: ShiftType } | null>(null);
   const [selectedDrivers, setSelectedDrivers] = useState<number[]>([]);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   const t = useTranslations(language);
   const isAdmin = userRole === 'admin';
@@ -55,6 +66,32 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
   const activeTable = useMemo(() => scheduleTables.find(t => t.id === activeTableId), [scheduleTables, activeTableId]);
   
   const getDayKey = (date: Date) => date.toISOString().split('T')[0];
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+  
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        console.log('User accepted the A2HS prompt');
+      } else {
+        console.log('User dismissed the A2HS prompt');
+      }
+      setDeferredPrompt(null);
+    }
+  };
 
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -250,6 +287,12 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ session, language, setLanguag
           </div>
           
           <div className={`flex items-center flex-wrap gap-2 sm:gap-3 ${language === 'nl' && 'md:order-1'}`}>
+            {deferredPrompt && (
+              <button onClick={handleInstallClick} className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-3 sm:px-4 py-2 rounded-xl border border-purple-400/30 transition-all">
+                <DownloadIcon className="w-5 h-5" />
+                <span className="font-bold text-sm hidden sm:inline">{t.general.addToHomeScreen}</span>
+              </button>
+            )}
             {isAdmin && <button onClick={() => setShowUserManagement(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all"><UserCogIcon className="w-5 h-5" /> <span className="font-bold text-sm hidden sm:inline">{t.scheduleApp.manageUsers}</span></button>}
             <button onClick={handleShareToWhatsApp} disabled={!activeTable} className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-slate-400 px-3 sm:px-4 py-2 rounded-xl border border-green-400/30 transition-all text-white"><Share2Icon className="w-5 h-5" /><span className="font-bold text-sm hidden sm:inline">WhatsApp</span></button>
             <button onClick={goToToday} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-3 sm:px-4 py-2 rounded-xl border border-indigo-400/30 transition-all"><CalendarIcon className="w-5 h-5" /> <span className="font-bold text-sm hidden sm:inline">{t.scheduleApp.today}</span></button>

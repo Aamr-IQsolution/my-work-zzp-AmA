@@ -1,4 +1,3 @@
-
 export const ar = {
   // General
   general: {
@@ -11,6 +10,7 @@ export const ar = {
     confirmAction: 'هل أنت متأكد؟',
     nameRequired: 'الاسم مطلوب',
     loading: 'جاري التحميل...',
+    addToHomeScreen: 'أضف للشاشة الرئيسية',
   },
   
   // Auth.tsx
@@ -34,7 +34,7 @@ export const ar = {
     backToLogin: 'العودة إلى تسجيل الدخول',
   },
 
-  // UpdatePassword.tsx (The one for password recovery flow)
+  // UpdatePassword.tsx
   updatePassword: {
     title: 'تحديث كلمة المرور',
     subtitle: 'أنت الآن مسجل للدخول. أدخل كلمة المرور الجديدة.',
@@ -47,60 +47,58 @@ export const ar = {
     loading: 'جاري التحديث...',
   },
 
-  // App.tsx -> UserManagement
+  // UserManagement
   userManagement: {
     title: 'إدارة المستخدمين',
-    loadingUsers: 'جار تحميل المستخدمين...',
+    loadingUsers: 'جاري تحميل المستخدمين...',
     errorOccurred: 'حدث خطأ',
-    errorHint: 'تأكد من نشر دالة Supabase وتفعيل سياسات RLS الصحيحة.',
+    errorHint: 'تأكد من أن دالة Supabase تم نشرها وأن سياسات RLS صحيحة.',
     user: 'مستخدم',
-    admin: 'مشرف',
+    admin: 'مسؤول',
     you: 'أنت',
     changePassword: 'تغيير كلمة المرور',
-    cannotChangeOwnRole: 'لا يمكنك تغيير دورك',
+    cannotChangeOwnRole: 'لا يمكنك تغيير دورك الخاص.',
     
-    // Password update modal within UserManagement
     updatePasswordModal: {
       title: 'تحديث كلمة المرور',
       newPasswordPlaceholder: 'كلمة المرور الجديدة',
       confirmPasswordPlaceholder: 'تأكيد كلمة المرور',
       passwordsDoNotMatch: 'كلمتا المرور غير متطابقتين!',
-      passwordTooShort: 'يجب أن تكون كلمة المرور 6 أحرف على الأقل.',
+      passwordTooShort: 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.',
       updateSuccess: 'تم تحديث كلمة المرور بنجاح!',
       updateError: 'فشل تحديث كلمة المرور.',
       updating: 'جاري التحديث...',
     }
   },
 
-  // App.tsx -> ScheduleApp
+  // ScheduleApp
   scheduleApp: {
     headerTitle: 'نظام جدولة السائقين',
-    manageUsers: 'المستخدمين',
+    manageUsers: 'المستخدمون',
     today: 'اليوم',
     userRole: 'مستخدم',
-    adminRole: 'مشرف',
+    adminRole: 'مسؤول',
     addDriver: 'إضافة سائق',
-    driverNamePlaceholder: 'اسم السائق...',
-    drivers: 'السائقين',
-    noDrivers: 'لا يوجد سائقين',
+    driverNamePlaceholder: 'الاسم...',
+    drivers: 'السائقون',
+    noDrivers: 'لا يوجد سائقون',
     week: 'أسبوع',
     newTableDefault: 'جدول',
     tableName: 'اسم الجدول',
-    routeInfo: 'معلومات الطريق',
+    routeInfo: 'معلومات المسار',
     day: 'اليوم',
-    morning: 'صباحي',
-    evening: 'مسائي',
+    morning: 'صباحاً',
+    evening: 'مساءً',
     assign: '+ تعيين',
     noTableSelected: 'لم يتم تحديد جدول',
-    selectOrAddTable: 'اختر أو أضف جدولاً جديداً.',
-    addTable: 'إضافة جدول',
-    selectDrivers: 'اختيار السائقين',
+    selectOrAddTable: 'حدد جدولاً أو أضف جدولاً جديداً.',
+    addTable: 'إضافة جدول جديد',
+    selectDrivers: 'اختر السائقين',
     addDriverFirst: 'أضف سائقاً أولاً',
     
-    // WhatsApp sharing
     whatsapp: {
-      schema: 'جدول',
-      route: 'الخط',
+      schema: 'الجدول',
+      route: 'المسار',
       noDriversAssigned: 'لا يوجد',
       generatedBy: 'تم إنشاؤه بواسطة',
     }
